@@ -308,6 +308,10 @@ setup_redis() {
   [ "$RAM_FOR_REDIS" -lt 64 ] && RAM_FOR_REDIS=64
   [ "$RAM_FOR_REDIS" -gt 512 ] && RAM_FOR_REDIS=512
 
+  # Ensure directories exist with correct ownership
+  mkdir -p /var/lib/redis /var/log/redis
+  chown redis:redis /var/lib/redis /var/log/redis 2>/dev/null || true
+
   cat > /etc/redis/redis.conf << REDIS_CONF
 bind 127.0.0.1
 port 6379
@@ -315,18 +319,17 @@ requirepass ${REDIS_PASS}
 maxmemory ${RAM_FOR_REDIS}mb
 maxmemory-policy allkeys-lru
 
-# Persistence
+# Persistence (RDB only - AOF disabled for VPS stability)
+appendonly no
 save 900 1
 save 300 10
-save 60 10000
-appendonly yes
-appendfsync everysec
 
-# Supervised
-supervised systemd
+# Supervised mode (auto-detects systemd vs standalone)
+supervised auto
 daemonize no
 
-# Logging
+# Directories
+dir /var/lib/redis
 logfile /var/log/redis/redis-server.log
 loglevel notice
 REDIS_CONF
