@@ -734,6 +734,7 @@ JWT_SECRET=${JWT_SECRET}
 VITE_PUBLIC_DOMAIN=${DOMAIN}
 
 # VPS APIs
+VPS_PUBLIC_IP=${PUBLIC_IP}
 VPS_MANAGEMENT_URL=http://127.0.0.1:8081
 VPS_MANAGEMENT_API_KEY=$(openssl rand -hex 32)
 VPS_COA_API_URL=http://127.0.0.1:8082
@@ -772,6 +773,16 @@ async function migrate() {
 migrate().catch(console.error);
 " 2>&1 | tail -3
   log "Database migrations applied ✓"
+
+  # Public server address for Winbox, CardCheck and generated MikroTik setup.
+  # PUBLIC_IP is detected automatically in check_system(), so fresh installs do
+  # not inherit an address from a previous server.
+  mysql -u radiuspro -p"${MYSQL_APP_PASS}" radius_pro <<PUBLIC_IP_SQL 2>/dev/null || true
+INSERT INTO system_settings (\`key\`, \`value\`, \`type\`, \`description\`, createdAt, updatedAt)
+VALUES ('radius_server_public_ip', '${PUBLIC_IP}', 'string', 'Automatically detected VPS public address', NOW(), NOW())
+ON DUPLICATE KEY UPDATE \`value\`=VALUES(\`value\`), \`type\`='string', \`description\`=VALUES(\`description\`), updatedAt=NOW();
+PUBLIC_IP_SQL
+  log "Public VPS address stored automatically ✓"
 
   # Create admin user
   ADMIN_HASH=$(node -e "const bcrypt=require('bcryptjs');console.log(bcrypt.hashSync('${OWNER_PASSWORD}',10))" 2>/dev/null || \
