@@ -27,4 +27,20 @@ curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installe
 
 بعد التثبيت توجد بيانات الإدارة والأسرار في `/etc/radius-pro/installer.env`، وبيانات MySQL في `/root/.mysql_credentials`، والنسخ الاحتياطية في `/var/backups/radius-pro`.
 
+## النسخ الاحتياطي والاستعادة
+
+تُنشأ نسخة يومية تلقائياً عند الساعة 02:00 UTC وتُحتفَظ النسخ لمدة 30 يوماً. يتكون كل تشغيل من ملف قاعدة بيانات `radius_pro_*.sql.gz` وملف إعدادات وبيانات `radius_pro_config_*.tar.gz`، ويشمل الأخير إعدادات التطبيق وFreeRADIUS وVPN وNginx وملفات الرفع المحلية ولقطة Redis إن وجدت.
+
+لإنشاء نسخة فورية:
+
+```bash
+sudo radius-pro-backup
+```
+
+الاستعادة عملية يدوية مؤكدة فقط؛ فهي تنشئ نسخة أمان جديدة أولاً ثم تستعيد قاعدة البيانات والإعدادات وملفات الرفع، وتعيد تشغيل الخدمات المطلوبة:
+
+```bash
+sudo RADIUS_PRO_CONFIRM_RESTORE=YES radius-pro-restore /var/backups/radius-pro/radius_pro_YYYYMMDD-HHMMSS.sql.gz /var/backups/radius-pro/radius_pro_config_YYYYMMDD-HHMMSS.tar.gz
+```
+
 > لا يحتوي الإصدار على ملفات Vitest أو Debug أو سجلات أو سكربتات ترقية/إصلاح تجريبية. تبقى الاختبارات في مستودع التطوير فقط ولا تُشحن في حزمة التطبيق.

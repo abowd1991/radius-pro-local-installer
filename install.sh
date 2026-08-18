@@ -604,10 +604,13 @@ stamp=$(date -u +%Y%m%d-%H%M%S)
 target=/var/backups/radius-pro
 mkdir -p "$target"
 mysqldump -uroot -p"$MYSQL_ROOT_PASS" --single-transaction --routines --triggers radius_pro | gzip > "$target/radius_pro_${stamp}.sql.gz"
-tar -czf "$target/radius_pro_config_${stamp}.tar.gz" /etc/radius-pro /etc/freeradius /etc/ipsec.conf /etc/ipsec.secrets /etc/xl2tpd /etc/ppp /etc/accel-ppp.conf /etc/nginx/sites-enabled/radius-pro /opt/radius-pro/.env /opt/radius-pro/.release-manifest /opt/vpn-api.py
+items=(/etc/radius-pro /etc/freeradius /etc/ipsec.conf /etc/ipsec.secrets /etc/xl2tpd /etc/ppp /etc/accel-ppp.conf /etc/nginx/sites-enabled/radius-pro /opt/radius-pro/.env /opt/radius-pro/.release-manifest /opt/radius-pro/uploads /opt/vpn-api.py)
+[[ -f /var/lib/redis/dump.rdb ]] && items+=(/var/lib/redis/dump.rdb)
+tar -czf "$target/radius_pro_config_${stamp}.tar.gz" "${items[@]}"
 find "$target" -type f -mtime +30 -delete
 EOF
   chmod 700 /usr/local/bin/radius-pro-backup
+  install -m 0700 "${INSTALLER_SOURCE_DIR}/scripts/radius-pro-restore" /usr/local/bin/radius-pro-restore
   cat > /etc/cron.d/radius-pro-backup <<'EOF'
 0 2 * * * root /usr/local/bin/radius-pro-backup >/var/log/radius-pro/backup.log 2>&1
 EOF

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Radius Pro Local V2 — manual, confirmed disaster recovery only.
+set -Eeuo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  sudo RADIUS_PRO_CONFIRM_RESTORE=YES radius-pro-restore <database.sql.gz> <config.tar.gz>
+
+The command creates a fresh safety backup before replacing data or configuration.
+EOF
+}
+
+[[ ${EUID} -eq 0 ]] || { echo "run as root" >&2; exit 1; }
+[[ $# -eq 2 ]] || { usage; exit 1; }
+[[ ${RADIUS_PRO_CONFIRM_RESTORE:-} == "YES" ]] || { echo "set RADIUS_PRO_CONFIRM_RESTORE=YES to confirm" >&2; exit 1; }
+
+database_backup="$1"
+configuration_backup="$2"
+[[ -r "$database_backup" && -r "$configuration_backup" ]] || { echo "backup file not readable" >&2; exit 1; }
+[[ "$database_backup" == *.sql.gz && "$configuration_backup" == *.tar.gz ]] || { echo "unexpected backup file type" >&2; exit 1; }
+
+echo "Creating a current safety backup..."
+/usr/local/bin/radius-pro-backup
+
+echo "Stopping application and infrastructure services..."
+pm2 stop radius-pro || true
+systemctl stop nginx radius-pro-coa radius-pro-vpn-api freeradius pptpd xl2tpd accel-ppp strongswan-starter redis-server || true
+
+echo "Restoring MySQL database..."
+source /root/.mysql_credentials
+gzip -cd -- "$database_backup" | mysql -uroot -p"$MYSQL_ROOT_PASS" radius_pro
+
+echo "Restoring configuration, uploads, and Redis snapshot..."
+tar -xzf "$configuration_backup" -C /
+
+echo "Starting services..."
+systemctl start redis-server strongswan-starter xl2tpd pptpd accel-ppp radius-pro-vpn-api radius-pro-coa freeradius nginx
+pm2 restart radius-pro
+
+echo "Restore completed. Verify with: /usr/local/bin/verify-radius-pro-install"
