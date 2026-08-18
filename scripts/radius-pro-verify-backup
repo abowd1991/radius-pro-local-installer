@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Radius Pro Local V2 — non-destructive backup verification.
+set -Eeuo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  sudo radius-pro-verify-backup <database.sql.gz> <config.tar.gz> [--deep]
+
+Default mode validates compression, required archive paths and SQL dump contents.
+--deep imports the SQL dump into a temporary MySQL database, checks core tables,
+then deletes that temporary database. It never alters radius_pro.
+EOF
+}
+
+[[ ${EUID} -eq 0 ]] || { echo "run as root" >&2; exit 1; }
+[[ $# -eq 2 || $# -eq 3 ]] || { usage; exit 1; }
+
+database_backup="$1"
+configuration_backup="$2"
+deep_mode="${3:-}"
+[[ -r "$database_backup" && -r "$configuration_backup" ]] || { echo "backup file not readable" >&2; exit 1; }
+[[ "$database_backup" == *.sql.gz && "$configuration_backup" == *.tar.gz ]] || { echo "unexpected backup file type" >&2; exit 1; }
+[[ -z "$deep_mode" || "$deep_mode" == "--deep" ]] || { usage; exit 1; }
+
+echo "Checking compressed database dump..."
+gzip -t -- "$database_backup"
+set +o pipefail
+sql_preview="$(gzip -cd -- "$database_backup" | head -c 1048576)"
+set -o pipefail
+[[ "$sql_preview" == *"CREATE TABLE"* || "$sql_preview" == *"INSERT INTO"* ]] || { echo "SQL dump does not contain expected MySQL statements" >&2; exit 1; }
+
+echo "Checking configuration archive..."
+tar -tzf "$configuration_backup" >/tmp/radius-pro-backup-contents.$$ 
+required_paths=(
+  "etc/radius-pro"
+  "etc/freeradius"
+  "etc/ipsec.conf"
+  "etc/ipsec.secrets"
+  "etc/xl2tpd"
+  "etc/ppp"
+  "etc/accel-ppp.conf"
+  "etc/nginx/sites-enabled/radius-pro"
+  "opt/radius-pro/.env"
+  "opt/radius-pro/.release-manifest"
+  "opt/radius-pro/uploads"
+  "opt/vpn-api.py"
+)
+for path in "${required_paths[@]}"; do
+  grep -qx "${path}" /tmp/radius-pro-backup-contents.$$ || grep -q "^${path}/" /tmp/radius-pro-backup-contents.$$ || { echo "missing required archive path: $path" >&2; rm -f /tmp/radius-pro-backup-contents.$$; exit 1; }
+done
+rm -f /tmp/radius-pro-backup-contents.$$
+
+if [[ "$deep_mode" == "--deep" ]]; then
+  source /root/.mysql_credentials
+  temporary_database="radius_pro_restore_verify_$(date -u +%Y%m%d%H%M%S)"
+  cleanup() { mysql -uroot -p"$MYSQL_ROOT_PASS" -e "DROP DATABASE IF EXISTS \`${temporary_database}\`"; }
+  trap cleanup EXIT
+  echo "Running deep restore test in temporary database ${temporary_database}..."
+  mysql -uroot -p"$MYSQL_ROOT_PASS" -e "CREATE DATABASE \`${temporary_database}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
+  gzip -cd -- "$database_backup" | mysql -uroot -p"$MYSQL_ROOT_PASS" "$temporary_database"
+  table_count="$(mysql -uroot -p"$MYSQL_ROOT_PASS" -Nse "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='${temporary_database}'")"
+  (( table_count > 0 )) || { echo "temporary restore created no tables" >&2; exit 1; }
+  for table in users radius_cards radcheck radacct online_sessions; do
+    mysql -uroot -p"$MYSQL_ROOT_PASS" -Nse "SELECT 1 FROM information_schema.tables WHERE table_schema='${temporary_database}' AND table_name='${table}'" | grep -qx 1 || { echo "missing core table after deep restore: $table" >&2; exit 1; }
+  done
+  echo "Deep restore test passed with ${table_count} tables; temporary database will be removed."
+fi
+
+echo "Backup verification passed."

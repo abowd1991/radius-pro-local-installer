@@ -37,6 +37,18 @@ curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installe
 sudo radius-pro-backup
 ```
 
+لفحص سلامة النسخة من دون تعديل أي بيانات أو إيقاف خدمات:
+
+```bash
+sudo radius-pro-verify-backup /var/backups/radius-pro/radius_pro_YYYYMMDD-HHMMSS.sql.gz /var/backups/radius-pro/radius_pro_config_YYYYMMDD-HHMMSS.tar.gz
+```
+
+ولفحص أعمق، يستعيد البرنامج النسخة مؤقتاً داخل قاعدة MySQL جديدة ثم يحذفها تلقائياً، من دون لمس قاعدة `radius_pro`. شغّله خارج أوقات الذروة لأنه يستهلك موارد تقارب حجم النسخة مؤقتاً:
+
+```bash
+sudo radius-pro-verify-backup /var/backups/radius-pro/radius_pro_YYYYMMDD-HHMMSS.sql.gz /var/backups/radius-pro/radius_pro_config_YYYYMMDD-HHMMSS.tar.gz --deep
+```
+
 الاستعادة عملية يدوية مؤكدة فقط؛ فهي تنشئ نسخة أمان جديدة أولاً ثم تستعيد قاعدة البيانات والإعدادات وملفات الرفع، وتعيد تشغيل الخدمات المطلوبة:
 
 ```bash

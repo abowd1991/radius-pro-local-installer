@@ -20,6 +20,9 @@ configuration_backup="$2"
 [[ -r "$database_backup" && -r "$configuration_backup" ]] || { echo "backup file not readable" >&2; exit 1; }
 [[ "$database_backup" == *.sql.gz && "$configuration_backup" == *.tar.gz ]] || { echo "unexpected backup file type" >&2; exit 1; }
 
+echo "Verifying backup integrity before restore..."
+/usr/local/bin/radius-pro-verify-backup "$database_backup" "$configuration_backup"
+
 echo "Creating a current safety backup..."
 /usr/local/bin/radius-pro-backup
 

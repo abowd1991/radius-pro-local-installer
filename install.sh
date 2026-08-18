@@ -611,6 +611,7 @@ find "$target" -type f -mtime +30 -delete
 EOF
   chmod 700 /usr/local/bin/radius-pro-backup
   install -m 0700 "${INSTALLER_SOURCE_DIR}/scripts/radius-pro-restore" /usr/local/bin/radius-pro-restore
+  install -m 0700 "${INSTALLER_SOURCE_DIR}/scripts/radius-pro-verify-backup" /usr/local/bin/radius-pro-verify-backup
   cat > /etc/cron.d/radius-pro-backup <<'EOF'
 0 2 * * * root /usr/local/bin/radius-pro-backup >/var/log/radius-pro/backup.log 2>&1
 EOF
