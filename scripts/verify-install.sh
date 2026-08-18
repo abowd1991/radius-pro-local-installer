@@ -23,6 +23,7 @@ check "pptp-service" systemctl is-active --quiet pptpd
 check "sstp-service" systemctl is-active --quiet accel-ppp
 check "vpn-api" curl -fsS http://127.0.0.1:8080/health
 check "coa-api" curl -fsS http://127.0.0.1:8082/health
+check "coa-api-service" systemctl is-active --quiet radius-pro-coa
 check "nginx" systemctl is-active --quiet nginx
 check "application" curl -fsS http://127.0.0.1:3000/health
 

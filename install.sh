@@ -516,7 +516,7 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-  cat > /etc/systemd/system/radius-pro-coa-api.service <<'EOF'
+  cat > /etc/systemd/system/radius-pro-coa.service <<'EOF'
 [Unit]
 Description=Radius Pro local CoA API
 After=network-online.target
@@ -626,7 +626,7 @@ EOF
 
 start_and_verify() {
   source "$CONFIG_DIR/installer.env"
-  systemctl enable --now strongswan-starter xl2tpd pptpd accel-ppp radius-pro-vpn-api radius-pro-coa-api freeradius nginx
+  systemctl enable --now strongswan-starter xl2tpd pptpd accel-ppp radius-pro-vpn-api radius-pro-coa freeradius nginx
   sleep 5
   set -a
   source "$CONFIG_DIR/installer.env"
