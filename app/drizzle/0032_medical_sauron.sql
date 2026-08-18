@@ -1,0 +1,2 @@
+ALTER TABLE `plans` ADD `currency` varchar(3) DEFAULT 'USD' NOT NULL;--> statement-breakpoint
+ALTER TABLE `users` ADD `preferredCurrency` enum('USD','ILS','JOD','SAR','AED','EGP','YER') DEFAULT 'USD' NOT NULL;

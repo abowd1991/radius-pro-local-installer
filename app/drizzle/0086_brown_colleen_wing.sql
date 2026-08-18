@@ -1,0 +1,1 @@
+ALTER TABLE `notification_preferences` ADD `storeOrderSmsTemplate` text;

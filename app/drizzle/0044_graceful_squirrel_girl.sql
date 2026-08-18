@@ -1,0 +1,1 @@
+ALTER TABLE `subscription_plans` MODIFY COLUMN `billingPeriod` enum('monthly','semi_annual','yearly') NOT NULL DEFAULT 'monthly';

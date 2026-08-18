@@ -1,0 +1,1 @@
+ALTER TABLE `notification_preferences` ADD `storeOrderSms` boolean DEFAULT false NOT NULL;

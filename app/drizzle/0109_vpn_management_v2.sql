@@ -1,0 +1,61 @@
+CREATE TABLE IF NOT EXISTS `vpn_identities` (
+  `id` int AUTO_INCREMENT NOT NULL,
+  `nasId` int NOT NULL,
+  `ownerId` int NOT NULL,
+  `vpnUsername` varchar(64) NOT NULL,
+  `protocol` enum('l2tp','pptp','sstp') NOT NULL,
+  `allocatedIp` varchar(45),
+  `provisioningStatus` enum('pending','ready','error','revoked') NOT NULL DEFAULT 'pending',
+  `providerReference` varchar(128),
+  `lastProvisionedAt` timestamp NULL,
+  `lastError` text,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `vpn_identities_id` PRIMARY KEY (`id`),
+  CONSTRAINT `vpn_identities_nas_unique` UNIQUE (`nasId`),
+  CONSTRAINT `vpn_identities_username_unique` UNIQUE (`vpnUsername`),
+  INDEX `vpn_identities_owner_idx` (`ownerId`),
+  INDEX `vpn_identities_provision_idx` (`provisioningStatus`)
+);
+
+CREATE TABLE IF NOT EXISTS `vpn_live_sessions` (
+  `id` int AUTO_INCREMENT NOT NULL,
+  `vpnIdentityId` int NOT NULL,
+  `nasId` int NOT NULL,
+  `ownerId` int NOT NULL,
+  `protocol` enum('l2tp','pptp','sstp') NOT NULL,
+  `providerSessionId` varchar(128),
+  `assignedIp` varchar(45),
+  `interfaceName` varchar(128),
+  `connectedAt` timestamp NOT NULL,
+  `lastSeenAt` timestamp NOT NULL,
+  `bytesIn` bigint NOT NULL DEFAULT 0,
+  `bytesOut` bigint NOT NULL DEFAULT 0,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updatedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT `vpn_live_sessions_id` PRIMARY KEY (`id`),
+  CONSTRAINT `vpn_live_sessions_identity_unique` UNIQUE (`vpnIdentityId`),
+  CONSTRAINT `vpn_live_sessions_nas_unique` UNIQUE (`nasId`),
+  INDEX `vpn_live_sessions_owner_idx` (`ownerId`),
+  INDEX `vpn_live_sessions_last_seen_idx` (`lastSeenAt`)
+);
+
+CREATE TABLE IF NOT EXISTS `vpn_session_lifecycles` (
+  `id` varchar(36) NOT NULL,
+  `vpnIdentityId` int NOT NULL,
+  `nasId` int NOT NULL,
+  `ownerId` int NOT NULL,
+  `protocol` enum('l2tp','pptp','sstp') NOT NULL,
+  `providerSessionId` varchar(128),
+  `assignedIp` varchar(45),
+  `connectedAt` timestamp NOT NULL,
+  `lastSeenAt` timestamp NOT NULL,
+  `disconnectedAt` timestamp NULL,
+  `closeReason` enum('normal','manual','lost_carrier','reprovisioned','unknown'),
+  `bytesIn` bigint NOT NULL DEFAULT 0,
+  `bytesOut` bigint NOT NULL DEFAULT 0,
+  `createdAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT `vpn_session_lifecycles_id` PRIMARY KEY (`id`),
+  INDEX `vpn_session_lifecycles_identity_connected_idx` (`vpnIdentityId`,`connectedAt`),
+  INDEX `vpn_session_lifecycles_nas_connected_idx` (`nasId`,`connectedAt`)
+);

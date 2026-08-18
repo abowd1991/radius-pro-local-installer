@@ -1,72 +1,30 @@
-# Radius Pro Local V2 — Full Auto Installer
+# Radius Pro Local V2 — الإصدار الرسمي
 
-## Quick Install
+هذا المستودع هو **مرجع التثبيت الوحيد** لإصدار Radius Pro Local V2. يحتوي على حزمة تطبيق إنتاجية نظيفة، وقوالب FreeRADIUS المعتمدة، وخدمات VPN وCoA، ومثبت واحد فقط.
+
+## التثبيت
+
+استخدم Ubuntu 22.04 LTS جديداً مع صلاحية `root` أو `sudo` واتصال إنترنت. يشغّل الأمر التالي المثبت كاملاً دون إدخال تفاعلي؛ تُولّد الأسرار وكلمة مرور المدير تلقائياً وتحفظ محلياً بصلاحيات مقيدة.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/main/install.sh | sudo bash
 ```
 
-Or clone and run:
+يمكن تمرير إعدادات اختيارية في نفس الأمر، مثل `RADIUS_PRO_PUBLIC_IP` و`RADIUS_PRO_ADMIN_USERNAME` و`RADIUS_PRO_ADMIN_PASSWORD` و`RADIUS_PRO_ADMIN_EMAIL`. لا تُضمّن أي أسرار في هذا المستودع.
 
-```bash
-git clone https://github.com/abowd1991/radius-pro-local-installer.git
-cd radius-pro-local-installer
-sudo bash install.sh
-```
+## ما يتم تثبيته
 
-## Requirements
+| المكوّن | التشغيل |
+|---|---|
+| التطبيق | Node.js 22 وPM2 على `127.0.0.1:3000` مع Nginx على المنفذ 80 |
+| قاعدة البيانات | MySQL محلي وقاعدة `radius_pro` وحسابات منفصلة للتطبيق وFreeRADIUS |
+| التخزين | مجلد محلي آمن داخل `/opt/radius-pro/uploads`، بلا اعتماد على تخزين خارجي |
+| Redis | محلي موثّق على `127.0.0.1:6379` |
+| FreeRADIUS | SQL وAccounting وV2 Authorization Bridge وعزل NAS fail-closed على 1812/1813 |
+| VPN | L2TP/IPsec وPPTP وSSTP عبر accel-ppp على 8443 |
+| APIs | VPN API وCoA API محليتان فقط على 8080 و8082 |
+| الحماية | UFW، Fail2ban، نسخ احتياطي يومي، Logrotate، والتحقق النهائي للخدمات |
 
-- Ubuntu 22.04 LTS
-- Minimum 1 CPU, 512MB RAM, 5GB disk
-- Root/sudo access
-- Internet connectivity
+بعد التثبيت توجد بيانات الإدارة والأسرار في `/etc/radius-pro/installer.env`، وبيانات MySQL في `/root/.mysql_credentials`، والنسخ الاحتياطية في `/var/backups/radius-pro`.
 
-## What Gets Installed
-
-| Component | Version | Port |
-|---|---|---|
-| Node.js | 22.x | - |
-| MySQL | 8.x | 3306 (local only) |
-| Redis | 6.x | 6379 (local only) |
-| FreeRADIUS | 3.x | 1812, 1813, 3799 |
-| Nginx | latest | 80, 443 |
-| PM2 | latest | - |
-| L2TP/IPSec | - | 1701, 500, 4500 |
-| PPTP/SSTP | accel-ppp | 1723, 443 |
-| Management API | Python | 8081 (local) |
-| CoA API | Python | 8082 (local) |
-
-## Modes
-
-```bash
-sudo bash install.sh           # Fresh install
-sudo bash install.sh upgrade   # Upgrade application
-sudo bash install.sh repair    # Repair services
-sudo bash install.sh uninstall # Remove installation
-```
-
-## After Installation
-
-- Health check: `radius-pro-health`
-- Manual backup: `radius-pro-backup`
-- App logs: `pm2 logs radius-pro`
-- App restart: `pm2 restart radius-pro`
-- Credentials: `/root/.mysql_credentials`
-- Install log: `/var/log/radius-pro-install.log`
-
-## Architecture
-
-```
-Internet → Nginx (80/443) → Node.js App (3000)
-                                ↓
-                    MySQL (3306) + Redis (6379)
-                                ↓
-MikroTik/NAS → FreeRADIUS (1812/1813) → radius_pro DB
-                                ↓
-VPN Clients → L2TP/IPSec + PPTP/SSTP → 192.168.30-31.0/24
-```
-
-## Version
-
-**Radius Pro Local V2 Production Ready**
-Tag: `radius-pro-local-v2-production-ready`
+> لا يحتوي الإصدار على ملفات Vitest أو Debug أو سجلات أو سكربتات ترقية/إصلاح تجريبية. تبقى الاختبارات في مستودع التطوير فقط ولا تُشحن في حزمة التطبيق.

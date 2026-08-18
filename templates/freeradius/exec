@@ -1,0 +1,15 @@
+exec accounting_bridge {
+    wait = yes
+    input_pairs = request
+    shell_escape = yes
+    program = "/usr/local/bin/radius-accounting-bridge.sh '%{Acct-Status-Type}' '%{Acct-Session-Id}' '%{Acct-Unique-Session-Id}' '%{User-Name}' '%{NAS-IP-Address}' '%{Framed-IP-Address}' '%{Acct-Session-Time}' '%{Acct-Input-Octets}' '%{Acct-Output-Octets}' '%{Acct-Terminate-Cause}'"
+    timeout = 10
+}
+exec authorization_bridge {
+    wait = yes
+    input_pairs = request
+    output_pairs = reply
+    shell_escape = yes
+    program = "/usr/local/bin/radius-authorization-bridge.sh '%{User-Name}' '%{Packet-Src-IP-Address}'"
+    timeout = 5
+}

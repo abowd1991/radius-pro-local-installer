@@ -1,0 +1,430 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+/* Cairo Font - Self-hosted for reliability */
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/cairo-arabic-300-normal.woff2') format('woff2'),
+       url('/fonts/cairo-arabic-300-normal.woff') format('woff');
+  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('/fonts/cairo-latin-400-normal.woff2') format('woff2'),
+       url('/fonts/cairo-latin-400-normal.woff') format('woff');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/cairo-arabic-400-normal.woff2') format('woff2'),
+       url('/fonts/cairo-arabic-400-normal.woff') format('woff');
+  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/cairo-latin-400-normal.woff2') format('woff2'),
+       url('/fonts/cairo-latin-400-normal.woff') format('woff');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/cairo-arabic-500-normal.woff2') format('woff2'),
+       url('/fonts/cairo-arabic-500-normal.woff') format('woff');
+  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/cairo-arabic-600-normal.woff2') format('woff2'),
+       url('/fonts/cairo-arabic-600-normal.woff') format('woff');
+  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/cairo-latin-600-normal.woff2') format('woff2'),
+       url('/fonts/cairo-latin-600-normal.woff') format('woff');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/cairo-arabic-700-normal.woff2') format('woff2'),
+       url('/fonts/cairo-arabic-700-normal.woff') format('woff');
+  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/cairo-latin-700-normal.woff2') format('woff2'),
+       url('/fonts/cairo-latin-700-normal.woff') format('woff');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('/fonts/cairo-arabic-800-normal.woff2') format('woff2'),
+       url('/fonts/cairo-arabic-800-normal.woff') format('woff');
+  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
+}
+@font-face {
+  font-family: 'Cairo';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('/fonts/cairo-arabic-900-normal.woff2') format('woff2'),
+       url('/fonts/cairo-arabic-900-normal.woff') format('woff');
+  unicode-range: U+0600-06FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE80-FEFC;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: "Cairo", system-ui, sans-serif;
+  --font-family-sans: "Cairo", system-ui, sans-serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  /* ── Radius Pro Design System ──
+     Primary:   #2563EB → oklch(0.546 0.245 264)
+     Secondary: #9333EA → oklch(0.558 0.288 301)
+     Background:#0B1120 → oklch(0.115 0.025 255)
+     Cards:     #111827 → oklch(0.148 0.02 255)
+  */
+  --radius: 0.75rem;
+  /* Primary: #2563EB */
+  --primary: oklch(0.546 0.245 264);
+  --primary-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(0.546 0.245 264);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  /* Charts */
+  --chart-1: oklch(0.546 0.245 264);
+  --chart-2: oklch(0.558 0.288 301);
+  --chart-3: oklch(0.696 0.17 162);
+  --chart-4: oklch(0.769 0.188 70);
+  --chart-5: oklch(0.627 0.258 29);
+  /* Light theme fallback */
+  --background: oklch(0.97 0.005 255);
+  --foreground: oklch(0.13 0.02 255);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.13 0.02 255);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.13 0.02 255);
+  --secondary: oklch(0.93 0.01 255);
+  --secondary-foreground: oklch(0.35 0.02 255);
+  --muted: oklch(0.94 0.008 255);
+  --muted-foreground: oklch(0.55 0.015 255);
+  --accent: oklch(0.93 0.02 264);
+  --accent-foreground: oklch(0.35 0.15 264);
+  --destructive: oklch(0.627 0.258 29);
+  --destructive-foreground: oklch(1 0 0);
+  --border: oklch(0.88 0.008 255);
+  --input: oklch(0.88 0.008 255);
+  --ring: oklch(0.546 0.245 264);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.13 0.02 255);
+  --sidebar-accent: oklch(0.93 0.02 264);
+  --sidebar-accent-foreground: oklch(0.35 0.15 264);
+  --sidebar-border: oklch(0.88 0.008 255);
+  --sidebar-ring: oklch(0.546 0.245 264);
+}
+
+.dark {
+  /* Dark theme: #0B1120 base */
+  --primary: oklch(0.546 0.245 264);
+  --primary-foreground: oklch(1 0 0);
+  --sidebar-primary: oklch(0.546 0.245 264);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  /* Background: #0B1120 */
+  --background: oklch(0.115 0.025 255);
+  --foreground: oklch(0.97 0.005 255);
+  /* Cards: #111827 */
+  --card: oklch(0.148 0.02 255);
+  --card-foreground: oklch(0.97 0.005 255);
+  --popover: oklch(0.148 0.02 255);
+  --popover-foreground: oklch(0.97 0.005 255);
+  --secondary: oklch(0.19 0.025 255);
+  --secondary-foreground: oklch(0.75 0.015 255);
+  --muted: oklch(0.21 0.022 255);
+  --muted-foreground: oklch(0.585 0.015 255);
+  /* Accent: purple tint #9333EA */
+  --accent: oklch(0.22 0.04 301);
+  --accent-foreground: oklch(0.85 0.12 301);
+  /* Destructive: #EF4444 */
+  --destructive: oklch(0.627 0.258 29);
+  --destructive-foreground: oklch(1 0 0);
+  /* Borders: rgba(255,255,255,0.08) */
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 10%);
+  --ring: oklch(0.546 0.245 264);
+  /* Charts */
+  --chart-1: oklch(0.546 0.245 264);
+  --chart-2: oklch(0.558 0.288 301);
+  --chart-3: oklch(0.696 0.17 162);
+  --chart-4: oklch(0.769 0.188 70);
+  --chart-5: oklch(0.627 0.258 29);
+  /* Sidebar */
+  --sidebar: oklch(0.135 0.022 255);
+  --sidebar-foreground: oklch(0.97 0.005 255);
+  --sidebar-accent: oklch(0.22 0.04 264);
+  --sidebar-accent-foreground: oklch(0.85 0.12 264);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.546 0.245 264);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: "Cairo", system-ui, sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  html {
+    @apply scroll-smooth;
+    direction: rtl;
+  }
+  
+  /* Modern Typography System */
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-semibold tracking-tight;
+  }
+  
+  h1 {
+    @apply text-2xl md:text-3xl font-bold;
+    letter-spacing: -0.02em;
+  }
+  
+  h2 {
+    @apply text-xl md:text-2xl font-semibold;
+    letter-spacing: -0.015em;
+  }
+  
+  h3 {
+    @apply text-lg md:text-xl font-semibold;
+    letter-spacing: -0.01em;
+  }
+  
+  h4 {
+    @apply text-base md:text-lg font-medium;
+  }
+  
+  /* Compact text styles for dashboard */
+  .text-compact {
+    @apply text-sm leading-tight;
+  }
+  
+  .text-stat {
+    @apply text-2xl md:text-3xl font-bold tracking-tight;
+  }
+  
+  /* Better readability */
+  p {
+    @apply leading-relaxed;
+  }
+  
+  /* Code & Numbers */
+  code, .font-mono {
+    font-family: "JetBrains Mono", "Courier New", monospace;
+    @apply text-sm;
+  }
+  /* RTL Support */
+  [dir="rtl"] {
+    text-align: right;
+  }
+  [dir="rtl"] .rtl\:space-x-reverse > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-x-reverse: 1;
+  }
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  a[href],
+  select:not(:disabled),
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+}
+
+@layer components {
+  /**
+   * Custom container utility that centers content and adds responsive padding.
+   *
+   * This overrides Tailwind's default container behavior to:
+   * - Auto-center content (mx-auto)
+   * - Add responsive horizontal padding
+   * - Set max-width for large screens
+   *
+   * Usage: <div className="container">...</div>
+   *
+   * For custom widths, use max-w-* utilities directly:
+   * <div className="max-w-6xl mx-auto px-4">...</div>
+   */
+  .container {
+    width: 100%;
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: 1rem; /* 16px - mobile padding */
+    padding-right: 1rem;
+  }
+
+  .flex {
+    min-height: 0;
+    min-width: 0;
+  }
+
+  @media (min-width: 640px) {
+    .container {
+      padding-left: 1.5rem; /* 24px - tablet padding */
+      padding-right: 1.5rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .container {
+      padding-left: 2rem; /* 32px - desktop padding */
+      padding-right: 2rem;
+      max-width: 1280px; /* Standard content width */
+    }
+  }
+
+  /* ── Radius Pro: Custom Scrollbar ── */
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: oklch(1 0 0 / 12%);
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: oklch(1 0 0 / 22%);
+  }
+
+  /* ── Radius Pro: Gradient Text ── */
+  .gradient-text {
+    background: linear-gradient(135deg, #2563EB, #9333EA);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* ── Radius Pro: Primary Button Glow ── */
+  .btn-glow {
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.4);
+  }
+  .btn-glow:hover {
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.55);
+  }
+
+  /* ── Radius Pro: Card Hover Lift ── */
+  .card-lift {
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 32px oklch(0 0 0 / 0.25);
+  }
+
+  /* ── AI Progress Bar Animation ── */
+  @keyframes ai-progress {
+    0%   { transform: translateX(-100%); }
+    50%  { transform: translateX(60%); }
+    100% { transform: translateX(250%); }
+  }
+  .ai-progress-bar {
+    animation: ai-progress 1.6s ease-in-out infinite;
+    width: 40%;
+  }
+
+  /* ── Support Badge Pulse Animation ── */
+  @keyframes badge-ping {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+    50% { transform: scale(1.18); box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  }
+  .badge-pulse {
+    animation: badge-ping 1.4s ease-in-out infinite;
+  }
+
+  /* ── Radius Pro: Stat Card Top Accent ── */
+  .stat-card {
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, #2563EB, #9333EA);
+  }
+}

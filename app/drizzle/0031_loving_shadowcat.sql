@@ -1,0 +1,1 @@
+ALTER TABLE `radius_cards` ADD `isManual` boolean DEFAULT false NOT NULL;

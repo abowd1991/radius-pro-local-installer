@@ -1,0 +1,1 @@
+ALTER TABLE `radius_cards` ADD `phone` varchar(30);

@@ -1,0 +1,1 @@
+ALTER TABLE `nas` ADD `mikrotikWinboxPort` int DEFAULT 8291;

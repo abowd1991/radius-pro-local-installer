@@ -1,1363 +1,674 @@
 #!/usr/bin/env bash
-# =============================================================================
-# Radius Pro Local V2 — Full Auto Installer
-# Version: 2.0.0
-# Author: Radius Pro Team
-# =============================================================================
-set -euo pipefail
+# Radius Pro Local V2 — Official Production Installer
+# Fresh Ubuntu 22.04 LTS installations only.
+set -Eeuo pipefail
+umask 077
 
-# ─── Colors ──────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
+readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
+readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
+readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
+RELEASE_VERSION=""
+readonly INSTALL_DIR="/opt/radius-pro"
+readonly CONFIG_DIR="/etc/radius-pro"
+readonly LOG_DIR="/var/log/radius-pro"
+readonly BACKUP_DIR="/var/backups/radius-pro"
+readonly RADIUS_DIR="/etc/freeradius/3.0"
+readonly INSTALL_LOG="/var/log/radius-pro-install.log"
+readonly ACCEL_PPP_COMMIT="b8f6eafe61ffcf6645a51cc2bc13c93cab4955fe"
 
-log()     { echo -e "${GREEN}[✓]${NC} $*"; }
-warn()    { echo -e "${YELLOW}[!]${NC} $*"; }
-error()   { echo -e "${RED}[✗]${NC} $*" >&2; }
-info()    { echo -e "${BLUE}[i]${NC} $*"; }
-header()  { echo -e "\n${BOLD}${CYAN}══════════════════════════════════════════${NC}"; echo -e "${BOLD}${CYAN}  $*${NC}"; echo -e "${BOLD}${CYAN}══════════════════════════════════════════${NC}\n"; }
+log() { printf '[radius-pro] %s\n' "$*" | tee -a "$INSTALL_LOG"; }
+die() { printf '[radius-pro] ERROR: %s\n' "$*" >&2; exit 1; }
+require_root() { [[ ${EUID} -eq 0 ]] || die "run as root"; }
+random_hex() { openssl rand -hex "$1"; }
+public_ipv4() { curl -4fsS --max-time 10 https://api.ipify.org || hostname -I | awk '{print $1}'; }
 
-INSTALLER_VERSION="2.0.0"
-INSTALLER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="/var/log/radius-pro-install.log"
-INSTALL_DIR="/opt/radius-pro"
-BACKUP_DIR="/opt/backups/radius-pro"
-TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+bootstrap_from_remote() {
+  if [[ -d "${INSTALLER_SOURCE_DIR}/app" && -d "${INSTALLER_SOURCE_DIR}/services" && -d "${INSTALLER_SOURCE_DIR}/templates" ]]; then
+    return
+  fi
+  if ! command -v git >/dev/null 2>&1; then
+    apt-get update -qq
+    apt-get install -y -qq git ca-certificates
+  fi
+  rm -rf "$INSTALLER_WORKDIR"
+  git clone --depth 1 "$INSTALLER_REPOSITORY" "$INSTALLER_WORKDIR"
+  exec bash "$INSTALLER_WORKDIR/install.sh" "$@"
+}
 
-# ─── Mode Detection ───────────────────────────────────────────────────────────
-MODE="${1:-install}"  # install | upgrade | repair | uninstall
+load_release_version() {
+  RELEASE_VERSION="$(tr -d '\n' < "${INSTALLER_SOURCE_DIR}/VERSION")"
+  [[ -n "$RELEASE_VERSION" ]] || die "official installer VERSION is missing"
+}
 
-# ─── Logging Setup ────────────────────────────────────────────────────────────
-mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee -a "$LOG_FILE") 2>&1
-echo "=== Radius Pro Installer v${INSTALLER_VERSION} — $(date) — Mode: ${MODE} ==="
+on_error() {
+  local code=$?
+  printf '[radius-pro] installer failed at line %s (exit %s)\n' "$1" "$code" | tee -a "$INSTALL_LOG" >&2
+  exit "$code"
+}
+trap 'on_error $LINENO' ERR
 
-# =============================================================================
-# SECTION 1: SYSTEM CHECK
-# =============================================================================
 check_system() {
-  header "1. System Requirements Check"
-
-  # OS Check
-  if [ ! -f /etc/os-release ]; then
-    error "Cannot detect OS. Ubuntu 22.04 LTS required."; exit 1
-  fi
+  require_root
+  [[ -r /etc/os-release ]] || die "Ubuntu 22.04 LTS is required"
   . /etc/os-release
-  if [[ "$ID" != "ubuntu" ]] || [[ "$VERSION_ID" != "22.04" ]]; then
-    error "Ubuntu 22.04 LTS required. Found: $PRETTY_NAME"; exit 1
-  fi
-  log "OS: $PRETTY_NAME ✓"
-
-  # Root check
-  if [ "$EUID" -ne 0 ]; then
-    error "Must run as root: sudo bash install.sh"; exit 1
-  fi
-  log "Root privileges ✓"
-
-  # CPU
-  CPU_CORES=$(nproc)
-  if [ "$CPU_CORES" -lt 1 ]; then
-    error "Minimum 1 CPU core required"; exit 1
-  fi
-  log "CPU: ${CPU_CORES} cores ✓"
-
-  # RAM
-  RAM_MB=$(free -m | awk '/^Mem:/{print $2}')
-  if [ "$RAM_MB" -lt 512 ]; then
-    error "Minimum 512MB RAM required. Found: ${RAM_MB}MB"; exit 1
-  fi
-  log "RAM: ${RAM_MB}MB ✓"
-
-  # Disk
-  DISK_GB=$(df -BG / | awk 'NR==2{print $4}' | tr -d 'G')
-  if [ "$DISK_GB" -lt 5 ]; then
-    error "Minimum 5GB free disk space required. Found: ${DISK_GB}GB"; exit 1
-  fi
-  log "Disk: ${DISK_GB}GB free ✓"
-
-  # Internet
-  if ! curl -s --max-time 5 https://google.com > /dev/null 2>&1; then
-    error "No internet connectivity"; exit 1
-  fi
-  log "Internet connectivity ✓"
-
-  # Public IP
-  PUBLIC_IP=$(curl -s --max-time 10 https://api.ipify.org 2>/dev/null || curl -s --max-time 10 https://ifconfig.me 2>/dev/null || echo "")
-  if [ -z "$PUBLIC_IP" ]; then
-    warn "Could not detect public IP automatically"
-  else
-    log "Public IP: $PUBLIC_IP ✓"
-  fi
-
-  # Timezone
-  timedatectl set-timezone Asia/Jerusalem 2>/dev/null || true
-  log "Timezone: Asia/Jerusalem ✓"
-
-  # IP Forwarding
-  echo 1 > /proc/sys/net/ipv4/ip_forward
-  echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
-  sysctl -p > /dev/null 2>&1
-  log "IP Forwarding enabled ✓"
+  [[ "$ID" == "ubuntu" && "$VERSION_ID" == "22.04" ]] || die "Ubuntu 22.04 LTS is required; found ${PRETTY_NAME:-unknown}"
+  (( $(free -m | awk '/^Mem:/{print $2}') >= 1024 )) || die "at least 1 GiB RAM is required"
+  (( $(df -Pm / | awk 'NR==2 {print $4}') >= 10240 )) || die "at least 10 GiB free disk is required"
+  [[ ! -e "$INSTALL_DIR/.release-manifest" ]] || die "an existing Radius Pro release was found; this installer is fresh-install only"
+  mkdir -p "$LOG_DIR" "$BACKUP_DIR" "$CONFIG_DIR"
+  touch "$INSTALL_LOG"
+  chmod 600 "$INSTALL_LOG"
+  log "system checks passed for Radius Pro ${RELEASE_VERSION}"
 }
 
-# =============================================================================
-# SECTION 2: INTERACTIVE CONFIGURATION
-# =============================================================================
-collect_config() {
-  header "2. Configuration"
-
-  echo -e "${BOLD}Please provide the following information:${NC}\n"
-
-  # Domain
-  read -rp "$(echo -e "${CYAN}Domain name (e.g. radius-pro.example.com):${NC} ")" DOMAIN
-  DOMAIN="${DOMAIN:-localhost}"
-
-  # Admin Email
-  read -rp "$(echo -e "${CYAN}Admin email:${NC} ")" ADMIN_EMAIL
-  ADMIN_EMAIL="${ADMIN_EMAIL:-admin@${DOMAIN}}"
-
-  # SSH Port
-  read -rp "$(echo -e "${CYAN}SSH port [22]:${NC} ")" SSH_PORT
-  SSH_PORT="${SSH_PORT:-22}"
-
-  # MySQL Password
-  MYSQL_ROOT_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 20)
-  MYSQL_APP_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 20)
-  MYSQL_RADIUS_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 20)
-  read -rp "$(echo -e "${CYAN}MySQL root password [auto-generated]:${NC} ")" _MYSQL_ROOT
-  [ -n "$_MYSQL_ROOT" ] && MYSQL_ROOT_PASS="$_MYSQL_ROOT"
-
-  # Redis Password
-  REDIS_PASS=$(openssl rand -base64 24 | tr -d '/+=' | head -c 20)
-  read -rp "$(echo -e "${CYAN}Redis password [auto-generated]:${NC} ")" _REDIS_PASS
-  [ -n "$_REDIS_PASS" ] && REDIS_PASS="$_REDIS_PASS"
-
-  # JWT Secret
-  JWT_SECRET=$(openssl rand -base64 48 | tr -d '/+=')
-
-  # Owner configuration
-  read -rp "$(echo -e "${CYAN}Owner username [admin]:${NC} ")" OWNER_USERNAME
-  OWNER_USERNAME="${OWNER_USERNAME:-admin}"
-  read -rsp "$(echo -e "${CYAN}Owner password:${NC} ")" OWNER_PASSWORD
-  echo ""
-  OWNER_PASSWORD="${OWNER_PASSWORD:-$(openssl rand -base64 12 | tr -d '/+=' | head -c 12)}"
-
-  # VPN L2TP Secret
-  VPN_L2TP_SECRET=$(openssl rand -base64 24 | tr -d '/+=' | head -c 20)
-  read -rp "$(echo -e "${CYAN}VPN L2TP/IPSec shared secret [auto-generated]:${NC} ")" _VPN_SECRET
-  [ -n "$_VPN_SECRET" ] && VPN_L2TP_SECRET="$_VPN_SECRET"
-
-  # RADIUS Secret
-  RADIUS_DEFAULT_SECRET=$(openssl rand -base64 16 | tr -d '/+=' | head -c 16)
-  read -rp "$(echo -e "${CYAN}Default RADIUS secret [auto-generated]:${NC} ")" _RADIUS_SECRET
-  [ -n "$_RADIUS_SECRET" ] && RADIUS_DEFAULT_SECRET="$_RADIUS_SECRET"
-
-  # SMS (optional)
-  read -rp "$(echo -e "${CYAN}TweetSMS username (optional, press Enter to skip):${NC} ")" TWEETSMS_USERNAME
-  if [ -n "$TWEETSMS_USERNAME" ]; then
-    read -rp "$(echo -e "${CYAN}TweetSMS password:${NC} ")" TWEETSMS_PASSWORD
-    read -rp "$(echo -e "${CYAN}TweetSMS sender:${NC} ")" TWEETSMS_SENDER
-  fi
-
-  # Summary
-  echo ""
-  info "Configuration summary:"
-  echo "  Domain:      $DOMAIN"
-  echo "  Admin Email: $ADMIN_EMAIL"
-  echo "  SSH Port:    $SSH_PORT"
-  echo "  Public IP:   ${PUBLIC_IP:-auto-detect}"
-  echo ""
-  read -rp "$(echo -e "${YELLOW}Proceed with installation? [y/N]:${NC} ")" CONFIRM
-  [[ "$CONFIRM" =~ ^[Yy]$ ]] || { info "Installation cancelled."; exit 0; }
+create_secrets() {
+  PUBLIC_IP="${RADIUS_PRO_PUBLIC_IP:-$(public_ipv4)}"
+  [[ -n "$PUBLIC_IP" ]] || die "unable to determine public IPv4; set RADIUS_PRO_PUBLIC_IP before running"
+  DOMAIN="${RADIUS_PRO_DOMAIN:-$PUBLIC_IP}"
+  ADMIN_USERNAME="${RADIUS_PRO_ADMIN_USERNAME:-admin}"
+  ADMIN_EMAIL="${RADIUS_PRO_ADMIN_EMAIL:-admin@${DOMAIN}}"
+  ADMIN_PASSWORD="${RADIUS_PRO_ADMIN_PASSWORD:-$(random_hex 16)}"
+  MYSQL_ROOT_PASSWORD="$(random_hex 32)"
+  APP_DB_PASSWORD="$(random_hex 32)"
+  RADIUS_DB_PASSWORD="$(random_hex 32)"
+  REDIS_PASSWORD="$(random_hex 32)"
+  JWT_SECRET="$(random_hex 48)"
+  LOCAL_RADIUS_SECRET="$(random_hex 24)"
+  VPN_IPSEC_PSK="${RADIUS_PRO_VPN_PSK:-$(random_hex 24)}"
+  VPN_API_KEY="$(random_hex 32)"
+  COA_API_KEY="$(random_hex 32)"
+  cat > "$CONFIG_DIR/installer.env" <<EOF
+RADIUS_PRO_VERSION=${RELEASE_VERSION}
+RADIUS_PRO_PUBLIC_IP=${PUBLIC_IP}
+RADIUS_PRO_DOMAIN=${DOMAIN}
+RADIUS_PRO_ADMIN_USERNAME=${ADMIN_USERNAME}
+RADIUS_PRO_ADMIN_EMAIL=${ADMIN_EMAIL}
+RADIUS_PRO_ADMIN_PASSWORD=${ADMIN_PASSWORD}
+MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+RADIUS_PRO_APP_DB_PASSWORD=${APP_DB_PASSWORD}
+RADIUS_PRO_RADIUS_DB_PASSWORD=${RADIUS_DB_PASSWORD}
+RADIUS_PRO_REDIS_PASSWORD=${REDIS_PASSWORD}
+RADIUS_PRO_LOCAL_RADIUS_SECRET=${LOCAL_RADIUS_SECRET}
+RADIUS_PRO_VPN_PSK=${VPN_IPSEC_PSK}
+RADIUS_PRO_VPN_API_KEY=${VPN_API_KEY}
+VPS_COA_API_KEY=${COA_API_KEY}
+EOF
+  chmod 600 "$CONFIG_DIR/installer.env"
 }
 
-# =============================================================================
-# SECTION 3: SYSTEM DEPENDENCIES
-# =============================================================================
-install_dependencies() {
-  header "3. Installing System Dependencies"
-
+install_packages() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   apt-get install -y -qq \
-    curl wget git unzip zip gnupg2 lsb-release ca-certificates \
-    build-essential software-properties-common apt-transport-https \
-    python3 python3-pip python3-venv python3-dev \
-    openssl libssl-dev libffi-dev \
-    net-tools iptables nftables ufw fail2ban \
-    logrotate cron \
-    xl2tpd ppp \
-    strongswan strongswan-pki libcharon-extra-plugins libcharon-extauth-plugins \
-    radclient \
-    nginx certbot python3-certbot-nginx \
-    jq bc htop 2>&1 | grep -E "^(E:|W:)" || true
+    ca-certificates curl git gnupg lsb-release unzip zip jq \
+    build-essential cmake pkg-config linux-headers-"$(uname -r)" \
+    libpcre3-dev libssl-dev liblua5.3-dev libpq-dev libmysqlclient-dev \
+    libgnutls28-dev libreadline-dev libcap-dev libmnl-dev libnet-snmp-dev \
+    mysql-server redis-server nginx ufw fail2ban cron logrotate \
+    freeradius freeradius-mysql freeradius-utils \
+    strongswan strongswan-starter strongswan-pki libcharon-extra-plugins xl2tpd ppp pptpd \
+    python3 python3-pip python3-venv python3-pymysql python3-mysql.connector python3-flask \
+    openssl net-tools iptables
 
-  log "System packages installed ✓"
-
-  # Node.js 22
-  if ! command -v node &>/dev/null || [[ "$(node -v)" != v22* ]]; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
-    apt-get install -y -qq nodejs 2>&1 | grep -E "^(E:|W:)" || true
+  if ! command -v node >/dev/null 2>&1 || [[ "$(node -v)" != v22.* ]]; then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    apt-get install -y -qq nodejs
   fi
-  log "Node.js $(node -v) ✓"
-
-  # pnpm
-  if ! command -v pnpm &>/dev/null; then
-    npm install -g pnpm@10 --quiet
-  fi
-  log "pnpm $(pnpm -v) ✓"
-
-  # PM2
-  if ! command -v pm2 &>/dev/null; then
-    npm install -g pm2 --quiet
-  fi
-  log "PM2 $(pm2 -v) ✓"
-
-  # Python packages
-  pip3 install -q flask flask-limiter requests bcrypt 2>/dev/null || true
-  log "Python packages ✓"
+  command -v pnpm >/dev/null 2>&1 || npm install --global pnpm@10
+  command -v pm2 >/dev/null 2>&1 || npm install --global pm2
+  log "system packages, Node.js, pnpm and PM2 installed"
 }
 
-# =============================================================================
-# SECTION 4: MYSQL 8 LOCAL
-# =============================================================================
-setup_mysql() {
-  header "4. MySQL 8 Local Setup"
-
-  if ! command -v mysql &>/dev/null; then
-    apt-get install -y -qq mysql-server 2>&1 | grep -E "^(E:|W:)" || true
+install_accel_ppp() {
+  if /usr/sbin/accel-pppd -V 2>/dev/null | grep -q "${ACCEL_PPP_COMMIT:0:8}"; then
+    log "accel-ppp reference build already present"
+    return
   fi
+  local source_dir="/usr/local/src/accel-ppp-${ACCEL_PPP_COMMIT:0:8}"
+  rm -rf "$source_dir"
+  git clone https://github.com/accel-ppp/accel-ppp.git "$source_dir"
+  git -C "$source_dir" checkout --detach "$ACCEL_PPP_COMMIT"
+  cmake -S "$source_dir" -B "$source_dir/build" \
+    -DBUILD_DRIVER=FALSE -DCMAKE_BUILD_TYPE=Release -DRADIUS=FALSE -DNETSNMP=FALSE -DSHAPER=FALSE
+  cmake --build "$source_dir/build" --parallel "$(nproc)"
+  cmake --install "$source_dir/build"
+  /usr/sbin/accel-pppd -V | grep -q "${ACCEL_PPP_COMMIT:0:8}" || die "accel-ppp build verification failed"
+  log "accel-ppp ${ACCEL_PPP_COMMIT:0:8} installed"
+}
 
-  systemctl enable mysql
-  systemctl start mysql
-
-  # Secure MySQL and create databases/users (idempotent)
-  mysql -u root <<MYSQL_SETUP
-ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${MYSQL_ROOT_PASS}';
-FLUSH PRIVILEGES;
-
--- Application database
+configure_mysql() {
+  source "$CONFIG_DIR/installer.env"
+  systemctl enable --now mysql
+  mysql --protocol=socket -uroot <<SQL
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${MYSQL_ROOT_PASSWORD}';
 CREATE DATABASE IF NOT EXISTS radius_pro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- FreeRADIUS database (separate permissions)
-CREATE DATABASE IF NOT EXISTS radius CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- App user (full access to radius_pro)
-CREATE USER IF NOT EXISTS 'radiuspro'@'localhost' IDENTIFIED BY '${MYSQL_APP_PASS}';
+CREATE USER IF NOT EXISTS 'radiuspro'@'localhost' IDENTIFIED BY '${RADIUS_PRO_APP_DB_PASSWORD}';
+ALTER USER 'radiuspro'@'localhost' IDENTIFIED BY '${RADIUS_PRO_APP_DB_PASSWORD}';
 GRANT ALL PRIVILEGES ON radius_pro.* TO 'radiuspro'@'localhost';
-
--- FreeRADIUS user (access to both)
-CREATE USER IF NOT EXISTS 'freeradius'@'localhost' IDENTIFIED BY '${MYSQL_RADIUS_PASS}';
+CREATE USER IF NOT EXISTS 'freeradius'@'localhost' IDENTIFIED BY '${RADIUS_PRO_RADIUS_DB_PASSWORD}';
+ALTER USER 'freeradius'@'localhost' IDENTIFIED BY '${RADIUS_PRO_RADIUS_DB_PASSWORD}';
 GRANT SELECT, INSERT, UPDATE, DELETE ON radius_pro.* TO 'freeradius'@'localhost';
-GRANT ALL PRIVILEGES ON radius.* TO 'freeradius'@'localhost';
-
 FLUSH PRIVILEGES;
-MYSQL_SETUP
-
-  # MySQL tuning for VPS
-  cat > /etc/mysql/conf.d/radius-pro.cnf << MYSQL_CNF
-[mysqld]
-# InnoDB Buffer Pool — adjust based on available RAM
-innodb_buffer_pool_size = $(( RAM_MB / 2 ))M
-innodb_log_file_size = 128M
-innodb_flush_log_at_trx_commit = 2
-innodb_flush_method = O_DIRECT
-
-# Connection pool
-max_connections = 200
-thread_cache_size = 16
-
-# Query cache (disabled in MySQL 8 — use application cache)
-# Slow query logging
-slow_query_log = 1
-slow_query_log_file = /var/log/mysql/slow.log
-long_query_time = 2
-
-# Binary logging for backup
-log_bin = /var/log/mysql/mysql-bin.log
-expire_logs_days = 7
-
-# Character set
-character-set-server = utf8mb4
-collation-server = utf8mb4_unicode_ci
-MYSQL_CNF
-
-  systemctl restart mysql
-  log "MySQL 8 configured ✓"
-
-  # Save credentials
-  cat > /root/.mysql_credentials << CREDS
-MYSQL_ROOT_PASS=${MYSQL_ROOT_PASS}
-MYSQL_APP_PASS=${MYSQL_APP_PASS}
-MYSQL_RADIUS_PASS=${MYSQL_RADIUS_PASS}
-CREDS
+SQL
+  cat > /root/.mysql_credentials <<EOF
+MYSQL_ROOT_PASS=${MYSQL_ROOT_PASSWORD}
+MYSQL_APP_PASS=${RADIUS_PRO_APP_DB_PASSWORD}
+MYSQL_RADIUS_PASS=${RADIUS_PRO_RADIUS_DB_PASSWORD}
+EOF
   chmod 600 /root/.mysql_credentials
-  log "MySQL credentials saved to /root/.mysql_credentials ✓"
+  log "local MySQL database and least-privilege accounts configured"
 }
 
-# =============================================================================
-# SECTION 5: REDIS LOCAL
-# =============================================================================
-setup_redis() {
-  header "5. Redis Local Setup"
-
-  if ! command -v redis-server &>/dev/null; then
-    apt-get install -y -qq redis-server 2>&1 | grep -E "^(E:|W:)" || true
-  fi
-
-  RAM_FOR_REDIS=$(( RAM_MB / 4 ))
-  [ "$RAM_FOR_REDIS" -lt 64 ] && RAM_FOR_REDIS=64
-  [ "$RAM_FOR_REDIS" -gt 512 ] && RAM_FOR_REDIS=512
-
-  # Ensure directories exist with correct ownership
-  mkdir -p /var/lib/redis /var/log/redis
-  chown redis:redis /var/lib/redis /var/log/redis 2>/dev/null || true
-
-  cat > /etc/redis/redis.conf << REDIS_CONF
-bind 127.0.0.1
+configure_redis() {
+  source "$CONFIG_DIR/installer.env"
+  cat > /etc/redis/redis.conf <<EOF
+bind 127.0.0.1 ::1
+protected-mode yes
 port 6379
-requirepass ${REDIS_PASS}
-maxmemory ${RAM_FOR_REDIS}mb
-maxmemory-policy allkeys-lru
-
-# Persistence (RDB only - AOF disabled for VPS stability)
+requirepass ${RADIUS_PRO_REDIS_PASSWORD}
+supervised systemd
+daemonize no
 appendonly no
 save 900 1
 save 300 10
-
-# Supervised mode (auto-detects systemd vs standalone)
-supervised auto
-daemonize no
-
-# Directories
+maxmemory 256mb
+maxmemory-policy allkeys-lru
 dir /var/lib/redis
 logfile /var/log/redis/redis-server.log
-loglevel notice
-REDIS_CONF
-
+EOF
   systemctl enable redis-server
   systemctl restart redis-server
-  sleep 2
-
-  # Test connection
-  if redis-cli -a "$REDIS_PASS" ping 2>/dev/null | grep -q PONG; then
-    log "Redis running and authenticated ✓"
-  else
-    warn "Redis may not be running correctly — check /var/log/redis/redis-server.log"
-  fi
+  redis-cli -a "$RADIUS_PRO_REDIS_PASSWORD" ping | grep -q PONG
+  log "Redis configured as an authenticated loopback-only service"
 }
 
-# =============================================================================
-# SECTION 6: FREERADIUS
-# =============================================================================
-setup_freeradius() {
-  header "6. FreeRADIUS Setup"
+stage_application() {
+  rm -rf "$INSTALL_DIR"
+  install -d -m 0750 "$INSTALL_DIR"
+  cp -a "${INSTALLER_SOURCE_DIR}/app/." "$INSTALL_DIR/"
+  cp "${INSTALLER_SOURCE_DIR}/services/coa-api.py" "$INSTALL_DIR/coa_api.py"
+  mkdir -p "$INSTALL_DIR/uploads"
+  chmod 0750 "$INSTALL_DIR/uploads"
+  source "$CONFIG_DIR/installer.env"
+  cat > "$INSTALL_DIR/.env" <<EOF
+NODE_ENV=production
+PORT=3000
+TZ=UTC
+DATABASE_URL=mysql://radiuspro:${RADIUS_PRO_APP_DB_PASSWORD}@127.0.0.1:3306/radius_pro
+JWT_SECRET=${JWT_SECRET}
+REDIS_URL=redis://:${RADIUS_PRO_REDIS_PASSWORD}@127.0.0.1:6379
+LOCAL_STORAGE_ENABLED=true
+LOCAL_STORAGE_DIR=${INSTALL_DIR}/uploads
+OWNER_OPEN_ID=local_admin_owner
+OWNER_NAME=Administrator
+VPS_PUBLIC_IP=${RADIUS_PRO_PUBLIC_IP}
+VPS_LEGACY_URL=http://127.0.0.1:8080
+VPS_LEGACY_SECRET=${RADIUS_PRO_VPN_API_KEY}
+VPS_MANAGEMENT_URL=http://127.0.0.1:8080
+VPS_MANAGEMENT_API_KEY=${RADIUS_PRO_VPN_API_KEY}
+VPS_COA_API_URL=http://127.0.0.1:8082
+VPS_COA_API_KEY=${VPS_COA_API_KEY}
+VPS_SSH_HOST=127.0.0.1
+VPS_SSH_PORT=22
+VPS_SSH_USER=root
+EOF
+  chmod 600 "$INSTALL_DIR/.env"
+  cd "$INSTALL_DIR"
+  pnpm install --frozen-lockfile
+  pnpm exec tsx scripts/run-migrations.ts
+  set -a
+  source "$INSTALL_DIR/.env"
+  source "$CONFIG_DIR/installer.env"
+  set +a
+  node scripts/bootstrap-owner.mjs
+  pnpm build
+  cat > "$INSTALL_DIR/ecosystem.config.cjs" <<EOF
+module.exports = {
+  apps: [{
+    name: "radius-pro",
+    script: "./dist/index.js",
+    cwd: "${INSTALL_DIR}",
+    instances: 1,
+    exec_mode: "fork",
+    autorestart: true,
+    max_restarts: 10,
+    env: { NODE_ENV: "production", PORT: 3000, TZ: "UTC" }
+  }]
+};
+EOF
+  cat > "$INSTALL_DIR/.release-manifest" <<EOF
+version=${RELEASE_VERSION}
+installed_at=$(date -u +%FT%TZ)
+storage=local
+EOF
+  log "application package built, migrated and configured for local storage"
+}
 
-  if ! command -v freeradius &>/dev/null; then
-    apt-get install -y -qq freeradius freeradius-mysql freeradius-utils 2>&1 | grep -E "^(E:|W:)" || true
+configure_radius() {
+  source "$CONFIG_DIR/installer.env"
+  if ! mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -Nse "SHOW TABLES FROM radius_pro LIKE 'radcheck'" | grep -qx 'radcheck'; then
+    mysql -uroot -p"$MYSQL_ROOT_PASSWORD" radius_pro < "$RADIUS_DIR/mods-config/sql/main/mysql/schema.sql"
   fi
-
-  FR_DIR="/etc/freeradius/3.0"
-
-  # Apply FreeRADIUS schema to radius_pro database
-  mysql -u root -p"${MYSQL_ROOT_PASS}" radius_pro < "${FR_DIR}/mods-config/sql/main/mysql/schema.sql" 2>/dev/null || true
-  log "FreeRADIUS schema applied ✓"
-
-  # SQL module configuration
-  cat > "${FR_DIR}/mods-available/sql" << FR_SQL
+  install -d -o freerad -g freerad -m 0750 "$RADIUS_DIR/dynamic-clients"
+  cat > "$RADIUS_DIR/mods-available/sql" <<EOF
 sql {
   driver = "rlm_sql_mysql"
   dialect = "mysql"
   server = "127.0.0.1"
   port = 3306
   login = "freeradius"
-  password = "${MYSQL_RADIUS_PASS}"
+  password = "${RADIUS_PRO_RADIUS_DB_PASSWORD}"
   radius_db = "radius_pro"
-
+  read_clients = yes
+  client_table = "nas"
+  authcheck_table = "radcheck"
+  authreply_table = "radreply"
+  groupcheck_table = "radgroupcheck"
+  groupreply_table = "radgroupreply"
+  usergroup_table = "radusergroup"
   acct_table1 = "radacct"
   acct_table2 = "radacct"
   postauth_table = "radpostauth"
-  authcheck_table = "radcheck"
-  groupcheck_table = "radgroupcheck"
-  authreply_table = "radreply"
-  groupreply_table = "radgroupreply"
-  usergroup_table = "radusergroup"
-  read_groups = yes
-  read_clients = yes
-  client_table = "nas"
-
-  pool {
-    start = 5
-    min = 3
-    max = 32
-    spare = 10
-    uses = 0
-    retry_delay = 30
-    lifetime = 1800
-    idle_timeout = 60
-  }
-
-  group_membership_query = "SELECT groupname FROM radusergroup WHERE username = '%{SQL-User-Name}' AND nasipaddress = '%{NAS-IP-Address}' ORDER BY priority"
-
-  authorize_check_query = "SELECT id, username, attribute, value, op FROM radcheck WHERE username = '%{SQL-User-Name}' ORDER BY id"
-  authorize_reply_query = "SELECT id, username, attribute, value, op FROM radreply WHERE username = '%{SQL-User-Name}' ORDER BY id"
-  authorize_group_check_query = "SELECT id, groupname, attribute, value, op FROM radgroupcheck WHERE groupname = '%{Sql-Group}' ORDER BY id"
-  authorize_group_reply_query = "SELECT id, groupname, attribute, value, op FROM radgroupreply WHERE groupname = '%{Sql-Group}' ORDER BY id"
-
-  accounting_onoff_query = "UPDATE radacct SET acctstoptime = FROM_UNIXTIME(%{integer:Event-Timestamp}), acctsessiontime = '%{integer:Acct-Session-Time}', acctterminatecause = '%{Acct-Terminate-Cause}', acctstopdelay = '%{integer:Acct-Delay-Time}' WHERE acctsessionid = '%{Acct-Session-Id}' AND username = '%{SQL-User-Name}' AND nasipaddress = '%{NAS-IP-Address}'"
-  accounting_update_query = "UPDATE radacct SET framedipaddress = '%{Framed-IP-Address}', acctsessiontime = '%{integer:Acct-Session-Time}', acctinputoctets = '%{integer:Acct-Input-Octets}', acctoutputoctets = '%{integer:Acct-Output-Octets}' WHERE acctsessionid = '%{Acct-Session-Id}' AND username = '%{SQL-User-Name}' AND nasipaddress = '%{NAS-IP-Address}'"
-  accounting_start_query = "INSERT INTO radacct (acctsessionid, acctuniqueid, username, realm, nasipaddress, nasportid, nasporttype, acctstarttime, acctupdatetime, acctstoptime, acctsessiontime, acctauthentic, connectinfo_start, connectinfo_stop, acctinputoctets, acctoutputoctets, calledstationid, callingstationid, acctterminatecause, servicetype, framedprotocol, framedipaddress) VALUES ('%{Acct-Session-Id}', '%{Acct-Unique-Session-Id}', '%{SQL-User-Name}', '%{Realm}', '%{NAS-IP-Address}', '%{NAS-Port-Id}', '%{NAS-Port-Type}', FROM_UNIXTIME(%{integer:Event-Timestamp}), FROM_UNIXTIME(%{integer:Event-Timestamp}), NULL, '0', '%{Acct-Authentic}', '%{Connect-Info}', '', '0', '0', '%{Called-Station-Id}', '%{Calling-Station-Id}', '', '%{Service-Type}', '%{Framed-Protocol}', '%{Framed-IP-Address}')"
-  accounting_stop_query = "UPDATE radacct SET acctstoptime = FROM_UNIXTIME(%{integer:Event-Timestamp}), acctsessiontime = '%{integer:Acct-Session-Time}', acctinputoctets = '%{integer:Acct-Input-Octets}', acctoutputoctets = '%{integer:Acct-Output-Octets}', acctterminatecause = '%{Acct-Terminate-Cause}', acctstopdelay = '%{integer:Acct-Delay-Time}', framedipaddress = '%{Framed-IP-Address}' WHERE acctsessionid = '%{Acct-Session-Id}' AND username = '%{SQL-User-Name}' AND nasipaddress = '%{NAS-IP-Address}'"
-
-  post_auth_query = "INSERT INTO radpostauth (username, pass, reply, authdate) VALUES ('%{SQL-User-Name}', '%{User-Password:-Chap-Password}', '%{reply:Packet-Type}', NOW())"
+  pool { start = 5 min = 3 max = 32 spare = 3 uses = 0 lifetime = 0 idle_timeout = 60 }
 }
-FR_SQL
-
-  # Enable SQL module
-  ln -sf "${FR_DIR}/mods-available/sql" "${FR_DIR}/mods-enabled/sql" 2>/dev/null || true
-
-  # clients.conf — dynamic from database
-  cat > "${FR_DIR}/clients.conf" << FR_CLIENTS
+EOF
+  install -m 0640 "${INSTALLER_SOURCE_DIR}/templates/freeradius/default" "$RADIUS_DIR/sites-available/default"
+  install -m 0640 "${INSTALLER_SOURCE_DIR}/templates/freeradius/exec" "$RADIUS_DIR/mods-available/exec"
+  ln -sfn "$RADIUS_DIR/mods-available/sql" "$RADIUS_DIR/mods-enabled/sql"
+  ln -sfn "$RADIUS_DIR/mods-available/exec" "$RADIUS_DIR/mods-enabled/exec"
+  ln -sfn "$RADIUS_DIR/mods-available/dynamic_clients" "$RADIUS_DIR/mods-enabled/dynamic_clients"
+  ln -sfn "$RADIUS_DIR/sites-available/default" "$RADIUS_DIR/sites-enabled/default"
+  cat > "$RADIUS_DIR/clients.conf" <<EOF
 client localhost {
   ipaddr = 127.0.0.1
-  secret = ${RADIUS_DEFAULT_SECRET}
+  secret = ${RADIUS_PRO_LOCAL_RADIUS_SECRET}
   shortname = localhost
   require_message_authenticator = no
 }
-
-# Dynamic clients from database
-client 0.0.0.0/0 {
-  secret = ${RADIUS_DEFAULT_SECRET}
-  shortname = dynamic
-  require_message_authenticator = no
-}
-FR_CLIENTS
-
-  # default site — NAS Isolation + Accounting
-  cat > "${FR_DIR}/sites-available/default" << 'FR_DEFAULT'
-server default {
-  listen {
-    type = auth
-    ipaddr = *
-    port = 1812
-    require_message_authenticator = yes
-  }
-  listen {
-    type = acct
-    ipaddr = *
-    port = 1813
-  }
-  listen {
-    type = auth+acct
-    ipaddr = 127.0.0.1
-    port = 18120
-  }
-
-  authorize {
-    preprocess
-    chap
-    mschap
-    suffix
-    eap { ok = return }
-    sql
-    pap
-  }
-
-  authenticate {
-    Auth-Type PAP { pap }
-    Auth-Type CHAP { chap }
-    Auth-Type MS-CHAP { mschap }
-    eap
-  }
-
-  preacct {
-    preprocess
-    acct_unique
-    suffix
-    files
-  }
-
-  accounting {
-    detail
-    unix
-    sql
-    exec
-    attr_filter.accounting_response
-  }
-
-  session { sql }
-
-  post-auth {
-    sql
-    exec
-    Post-Auth-Type REJECT { sql }
-  }
-}
-FR_DEFAULT
-
-  # Enable default site
-  ln -sf "${FR_DIR}/sites-available/default" "${FR_DIR}/sites-enabled/default" 2>/dev/null || true
-
-  # Thread pool tuning
-  sed -i 's/^#\s*max_servers\s*=.*/max_servers = 32/' "${FR_DIR}/radiusd.conf" 2>/dev/null || true
-  sed -i 's/^#\s*max_spare_servers\s*=.*/max_spare_servers = 10/' "${FR_DIR}/radiusd.conf" 2>/dev/null || true
-
-  # Fix permissions
-  chown -R freerad:freerad "${FR_DIR}" 2>/dev/null || true
-  chmod 640 "${FR_DIR}/mods-available/sql" 2>/dev/null || true
-
+EOF
+  install -m 0750 "${INSTALLER_SOURCE_DIR}/services/radius-authorization-bridge.sh" /usr/local/bin/radius-authorization-bridge.sh
+  install -m 0750 "${INSTALLER_SOURCE_DIR}/services/radius-accounting-bridge.sh" /usr/local/bin/radius-accounting-bridge.sh
+  chown -R freerad:freerad "$RADIUS_DIR/dynamic-clients" "$RADIUS_DIR/mods-available/sql" "$RADIUS_DIR/mods-available/exec"
+  freeradius -XC
   systemctl enable freeradius
-  systemctl restart freeradius
-  sleep 3
-
-  if systemctl is-active --quiet freeradius; then
-    log "FreeRADIUS running ✓"
-  else
-    error "FreeRADIUS failed to start — check: journalctl -xeu freeradius"
-    journalctl -xeu freeradius --no-pager -n 20
-  fi
+  log "FreeRADIUS configured with fail-closed NAS isolation and V2 bridges"
 }
 
-# =============================================================================
-# SECTION 7: VPN STACK (L2TP/IPSec + PPTP + accel-ppp)
-# =============================================================================
-setup_vpn() {
-  header "7. VPN Stack Setup"
-
-  # ── L2TP/IPSec (strongSwan + xl2tpd) ──────────────────────────────────────
-  # IPSec configuration
-  cat > /etc/ipsec.conf << IPSEC_CONF
+configure_vpn() {
+  source "$CONFIG_DIR/installer.env"
+  cat > /etc/ipsec.conf <<'EOF'
 config setup
-  charondebug="ike 1, knl 1, cfg 0"
-  uniqueids=no
-
+    charondebug="ike 2, knl 1, cfg 0, net 1"
+    uniqueids=no
+conn %default
+    ikelifetime=24h
+    keylife=8h
+    margintime=9m
+    rekeymargin=3m
+    keyingtries=1
+    keyexchange=ikev1
+    authby=secret
 conn L2TP-PSK
-  authby=secret
-  auto=add
-  keyingtries=3
-  rekey=no
-  ikelifetime=8h
-  keylife=1h
-  type=transport
-  left=%defaultroute
-  leftprotoport=17/1701
-  right=%any
-  rightprotoport=17/%any
-  dpddelay=30
-  dpdtimeout=120
-  dpdaction=clear
-IPSEC_CONF
-
-  cat > /etc/ipsec.secrets << IPSEC_SECRETS
-: PSK "${VPN_L2TP_SECRET}"
-IPSEC_SECRETS
+    keyexchange=ikev1
+    left=%defaultroute
+    leftprotoport=17/1701
+    right=%any
+    rightprotoport=17/%any
+    type=transport
+    auto=add
+    dpddelay=30
+    dpdtimeout=120
+    dpdaction=clear
+    forceencaps=yes
+    ike=aes128-sha1-modp2048,aes256-sha1-modp2048,aes128-sha256-modp2048,aes256-sha256-modp2048,3des-sha1-modp1024,aes128-sha1-modp1024!
+    esp=aes128-sha1-modp2048,aes256-sha1-modp2048,aes128-sha1-modp1024,aes256-sha1-modp1024,aes128-sha1,aes256-sha1,3des-sha1-modp1024,3des-sha1!
+EOF
+  printf ': PSK "%s"\n' "$RADIUS_PRO_VPN_PSK" > /etc/ipsec.secrets
   chmod 600 /etc/ipsec.secrets
-
-  # xl2tpd configuration
-  cat > /etc/xl2tpd/xl2tpd.conf << XL2TPD_CONF
+  cat > /etc/xl2tpd/xl2tpd.conf <<'EOF'
 [global]
 ipsec saref = yes
 saref refinfo = 30
-
+port = 1701
 [lns default]
-ip range = 192.168.30.100-192.168.30.200
+ip range = 192.168.30.10-192.168.30.250
 local ip = 192.168.30.1
 require chap = yes
 refuse pap = yes
 require authentication = yes
+name = VPN
 ppp debug = yes
 pppoptfile = /etc/ppp/options.xl2tpd
 length bit = yes
-XL2TPD_CONF
-
-  cat > /etc/ppp/options.xl2tpd << PPP_OPTS
+EOF
+  cat > /etc/ppp/options.xl2tpd <<'EOF'
 ipcp-accept-local
 ipcp-accept-remote
 ms-dns 8.8.8.8
 ms-dns 8.8.4.4
 noccp
 auth
-crtscts
-idle 1800
-mtu 1280
-mru 1280
-nodefaultroute
-debug
-lock
+mtu 1400
+mru 1400
 proxyarp
+lcp-echo-failure 4
+lcp-echo-interval 30
 connect-delay 5000
-plugin radius.so
-plugin radattr.so
-PPP_OPTS
-
-  # xl2tpd chap-secrets
-  cat > /etc/ppp/chap-secrets << 'CHAP'
-# Managed by FreeRADIUS — do not edit manually
-CHAP
-
-  # ── accel-ppp (PPTP + SSTP) ────────────────────────────────────────────────
-  if command -v accel-pppd &>/dev/null; then
-    cat > /etc/accel-ppp.conf << ACCEL_CONF
+nodefaultroute
+EOF
+  cat > /etc/pptpd.conf <<'EOF'
+option /etc/ppp/pptpd-options
+logwtmp
+localip 192.168.32.1
+remoteip 192.168.32.10-245
+EOF
+  cat > /etc/ppp/pptpd-options <<'EOF'
+name pptpd
+refuse-pap
+refuse-chap
+refuse-mschap
+require-mschap-v2
+ms-dns 8.8.8.8
+ms-dns 8.8.4.4
+proxyarp
+lock
+nobsdcomp
+novj
+novjccomp
+nologfd
+EOF
+  printf '# Managed by Radius Pro VPN API\n' > /etc/ppp/chap-secrets
+  chmod 600 /etc/ppp/chap-secrets
+  install -d -m 0750 /etc/accel-ppp /var/log/accel-ppp
+  openssl req -x509 -newkey rsa:2048 -nodes -sha256 -days 3650 \
+    -keyout /etc/accel-ppp/server.key -out /etc/accel-ppp/server.crt \
+    -subj "/CN=${RADIUS_PRO_PUBLIC_IP}" >/dev/null 2>&1
+  chmod 600 /etc/accel-ppp/server.key
+  cat > /etc/accel-ppp.conf <<'EOF'
 [modules]
-log_file
-pptp
+log_syslog
 sstp
 auth_mschap_v2
-radius
+chap-secrets
 ippool
-
+cli
+[common]
+check-ip=1
 [core]
 thread-count=4
-
+log-error=/var/log/accel-ppp/core.log
 [log]
 log-file=/var/log/accel-ppp/accel-ppp.log
 log-emerg=/var/log/accel-ppp/emerg.log
 copy=1
 level=3
-
-[pptp]
-bind=0.0.0.0
-
 [sstp]
-bind=0.0.0.0:443
-ssl-pemfile=/etc/ssl/radius-pro/server.pem
-
+port=8443
+ssl-pemfile=/etc/accel-ppp/server.crt
+ssl-keyfile=/etc/accel-ppp/server.key
+verbose=1
+accept=ssl
+ifname=sstp%d
+ip-pool=sstp_pool
+[client-ip-range]
+0.0.0.0/1
+128.0.0.0/2
+224.0.0.0/3
+208.0.0.0/4
+200.0.0.0/5
+196.0.0.0/6
+194.0.0.0/7
+193.0.0.0/8
+192.0.0.0/9
+192.192.0.0/10
+192.128.0.0/11
+192.176.0.0/12
+192.160.0.0/13
+192.172.0.0/14
+192.170.0.0/15
+192.169.0.0/16
+192.168.128.0/17
+192.168.64.0/18
+192.168.32.0/19
+192.168.0.0/20
+192.168.16.0/21
+192.168.24.0/22
+192.168.28.0/23
+192.168.30.0/24
+[chap-secrets]
+gw-ip-address=192.168.31.1
+chap-secrets=/etc/ppp/chap-secrets
 [ppp]
 mtu=1400
 mru=1400
-
-[radius]
-server=127.0.0.1,${RADIUS_DEFAULT_SECRET},auth-port=1812,acct-port=1813
-dae-server=127.0.0.1:3799,${RADIUS_DEFAULT_SECRET}
-
+verbose=1
+min-mtu=1280
+mppe=require
+[dns]
+dns1=8.8.8.8
+dns2=8.8.4.4
 [ip-pool]
 gw-ip-address=192.168.31.1
-192.168.31.2-192.168.31.254
-ACCEL_CONF
-
-    mkdir -p /var/log/accel-ppp
-    systemctl enable accel-ppp 2>/dev/null || true
-    systemctl restart accel-ppp 2>/dev/null || true
-    log "accel-ppp (PPTP/SSTP) configured ✓"
-  else
-    warn "accel-ppp not installed — PPTP/SSTP not available"
-  fi
-
-  # Enable and start VPN services
-  systemctl enable strongswan-starter xl2tpd 2>/dev/null || true
-  systemctl restart strongswan-starter xl2tpd 2>/dev/null || true
-  log "L2TP/IPSec VPN configured ✓"
-}
-
-# =============================================================================
-# SECTION 8: NETWORK BRIDGE (192.168.30.0/24)
-# =============================================================================
-setup_network() {
-  header "8. Network Bridge Setup"
-
-  # Create radius-bridge interface
-  ip link add name radius-bridge type bridge 2>/dev/null || true
-  ip addr add 192.168.30.1/24 dev radius-bridge 2>/dev/null || true
-  ip link set radius-bridge up 2>/dev/null || true
-
-  # Persist via netplan
-  cat > /etc/netplan/99-radius-bridge.yaml << NETPLAN
-network:
-  version: 2
-  bridges:
-    radius-bridge:
-      addresses:
-        - 192.168.30.1/24
-      parameters:
-        stp: false
-        forward-delay: 0
-NETPLAN
-  netplan apply 2>/dev/null || true
-
-  # NAT for VPN clients
-  MAIN_IFACE=$(ip route | grep default | awk '{print $5}' | head -1)
-  iptables -t nat -A POSTROUTING -s 192.168.30.0/24 -o "$MAIN_IFACE" -j MASQUERADE 2>/dev/null || true
-  iptables -t nat -A POSTROUTING -s 192.168.31.0/24 -o "$MAIN_IFACE" -j MASQUERADE 2>/dev/null || true
-
-  # Save iptables rules
-  apt-get install -y -qq iptables-persistent 2>/dev/null || true
-  iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
-
-  log "Network bridge 192.168.30.1/24 configured ✓"
-}
-
-# =============================================================================
-# SECTION 9: APPLICATION DEPLOYMENT
-# =============================================================================
-deploy_application() {
-  header "9. Radius Pro Application Deployment"
-
-  mkdir -p "$INSTALL_DIR"
-
-  # Clone or update
-  if [ -d "$INSTALL_DIR/.git" ]; then
-    info "Existing installation found — updating..."
-    cd "$INSTALL_DIR"
-    git fetch origin
-    git checkout radius-pro-local-v2-production-ready 2>/dev/null || git pull origin main
-  else
-    git clone https://github.com/abowd1991/radius-pro-local-installer.git "$INSTALL_DIR" 2>/dev/null || {
-      error "Cannot clone repository. Check GitHub access."; exit 1
-    }
-    cd "$INSTALL_DIR"
-    git checkout radius-pro-local-v2-production-ready 2>/dev/null || true
-  fi
-
-  # Install dependencies
-  cd "$INSTALL_DIR"
-  pnpm install --frozen-lockfile 2>&1 | tail -5
-
-  # Build
-  NODE_OPTIONS="--max-old-space-size=1024" pnpm build 2>&1 | tail -10
-  log "Application built ✓"
-
-  # Create .env
-  cat > "$INSTALL_DIR/.env" << APP_ENV
-NODE_ENV=production
-PORT=3000
-TZ=Asia/Jerusalem
-
-# Database
-DATABASE_URL=mysql://radiuspro:${MYSQL_APP_PASS}@127.0.0.1:3306/radius_pro
-
-# Redis
-REDIS_URL=redis://:${REDIS_PASS}@127.0.0.1:6379
-
-# Auth
-JWT_SECRET=${JWT_SECRET}
-
-# Domain
-VITE_PUBLIC_DOMAIN=${DOMAIN}
-
-# VPS APIs
-VPS_PUBLIC_IP=${PUBLIC_IP}
-VPS_MANAGEMENT_URL=http://127.0.0.1:8081
-VPS_MANAGEMENT_API_KEY=$(openssl rand -hex 32)
-VPS_COA_API_URL=http://127.0.0.1:8082
-VPS_COA_API_KEY=$(openssl rand -hex 32)
-VPS_LEGACY_URL=http://127.0.0.1:8080
-VPS_MANAGEMENT_SECRET=$(openssl rand -hex 32)
-
-# SMS (optional)
-TWEETSMS_USERNAME=${TWEETSMS_USERNAME:-}
-TWEETSMS_PASSWORD=${TWEETSMS_PASSWORD:-}
-TWEETSMS_SENDER=${TWEETSMS_SENDER:-}
-APP_ENV
-
-  chmod 600 "$INSTALL_DIR/.env"
-  log ".env created ✓"
-
-  # Run migrations
-  cd "$INSTALL_DIR"
-  node -e "
-const mysql = require('mysql2/promise');
-const fs = require('fs');
-const path = require('path');
-async function migrate() {
-  const conn = await mysql.createConnection('mysql://radiuspro:${MYSQL_APP_PASS}@127.0.0.1:3306/radius_pro');
-  const files = fs.readdirSync('./drizzle').filter(f => f.endsWith('.sql')).sort();
-  for (const f of files) {
-    const sql = fs.readFileSync(path.join('./drizzle', f), 'utf8');
-    const stmts = sql.split('--> statement-breakpoint').filter(s => s.trim());
-    for (const stmt of stmts) {
-      if (stmt.trim()) await conn.execute(stmt).catch(() => {});
-    }
-  }
-  await conn.end();
-  console.log('Migrations applied');
-}
-migrate().catch(console.error);
-" 2>&1 | tail -3
-  log "Database migrations applied ✓"
-
-  # Public server address for Winbox, CardCheck and generated MikroTik setup.
-  # PUBLIC_IP is detected automatically in check_system(), so fresh installs do
-  # not inherit an address from a previous server.
-  mysql -u radiuspro -p"${MYSQL_APP_PASS}" radius_pro <<PUBLIC_IP_SQL 2>/dev/null || true
-INSERT INTO system_settings (\`key\`, \`value\`, \`type\`, \`description\`, createdAt, updatedAt)
-VALUES ('radius_server_public_ip', '${PUBLIC_IP}', 'string', 'Automatically detected VPS public address', NOW(), NOW())
-ON DUPLICATE KEY UPDATE \`value\`=VALUES(\`value\`), \`type\`='string', \`description\`=VALUES(\`description\`), updatedAt=NOW();
-PUBLIC_IP_SQL
-  log "Public VPS address stored automatically ✓"
-
-  # Create admin user
-  ADMIN_HASH=$(node -e "const bcrypt=require('bcryptjs');console.log(bcrypt.hashSync('${OWNER_PASSWORD}',10))" 2>/dev/null || \
-              python3 -c "import bcrypt;print(bcrypt.hashpw(b'${OWNER_PASSWORD}',bcrypt.gensalt()).decode())" 2>/dev/null)
-  mysql -u radiuspro -p"${MYSQL_APP_PASS}" radius_pro <<ADMIN_SQL 2>/dev/null || true
-INSERT INTO users (openId, username, passwordHash, name, email, role, emailVerified, onboardingCompleted, status, createdAt, updatedAt, lastSignedIn)
-VALUES ('local_admin_owner', '${OWNER_USERNAME}', '${ADMIN_HASH}', 'Admin', '${ADMIN_EMAIL}', 'owner', 1, 1, 'active', NOW(), NOW(), NOW())
-ON DUPLICATE KEY UPDATE updatedAt=NOW();
-ADMIN_SQL
-  log "Admin user created ✓"
-}
-
-# =============================================================================
-# SECTION 10: PYTHON APIs
-# =============================================================================
-setup_python_apis() {
-  header "10. Python APIs Setup"
-
-  # VPS Management API (port 8081)
-  mkdir -p /opt/radius-pro-apis
-  cp "$INSTALL_DIR/vps-scripts/vps_management_api.py" /opt/radius-pro-apis/ 2>/dev/null || true
-
-  cat > /etc/systemd/system/radius-pro-management.service << MGMT_SVC
+192.168.31.100-192.168.31.254,sstp_pool
+[cli]
+tcp=127.0.0.1:2001
+sessions-columns=ifname,username,ip,type,state,uptime
+EOF
+  cat > /etc/systemd/system/accel-ppp.service <<'EOF'
 [Unit]
-Description=Radius Pro Management API
-After=network.target
-
+Description=Accel-PPP VPN daemon
+After=network-online.target
+Wants=network-online.target
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/radius-pro-apis
-ExecStart=/usr/bin/python3 /opt/radius-pro-apis/vps_management_api.py
+ExecStart=/usr/sbin/accel-pppd -c /etc/accel-ppp.conf -p /run/accel-ppp.pid -d
 Restart=always
 RestartSec=5
-Environment=PORT=8081
-Environment=APP_DIR=${INSTALL_DIR}
-Environment=BACKUP_DIR=${BACKUP_DIR}
-
 [Install]
 WantedBy=multi-user.target
-MGMT_SVC
+EOF
+  cat > /etc/sysctl.d/99-radius-pro.conf <<'EOF'
+net.ipv4.ip_forward=1
+EOF
+  sysctl --system >/dev/null
+  log "L2TP/IPsec, PPTP and SSTP configuration staged"
+}
 
-  # CoA API (port 8082)
-  cat > /opt/radius-pro-apis/coa_api.py << 'COA_PY'
-#!/usr/bin/env python3
-"""Radius Pro CoA API — executes radclient for CoA/Disconnect"""
-import os, subprocess, json
-from flask import Flask, request, jsonify
-app = Flask(__name__)
-API_KEY = os.environ.get("COA_API_KEY", "")
-
-def auth():
-    return request.headers.get("X-API-Key") == API_KEY
-
-@app.route("/coa/disconnect", methods=["POST"])
-def disconnect():
-    if not auth(): return jsonify({"error": "unauthorized"}), 401
-    data = request.json
-    username = data.get("username", "")
-    nas_ip = data.get("nasIp", "127.0.0.1")
-    secret = data.get("secret", "testing123")
-    cmd = ["radclient", "-x", f"{nas_ip}:3799", "disconnect", secret]
-    stdin = f"User-Name = {username}\n"
-    result = subprocess.run(cmd, input=stdin, capture_output=True, text=True, timeout=10)
-    return jsonify({"success": result.returncode == 0, "output": result.stdout})
-
-@app.route("/health")
-def health():
-    return jsonify({"status": "ok"})
-
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", 8082)))
-COA_PY
-
-  cat > /etc/systemd/system/radius-pro-coa.service << COA_SVC
+configure_local_apis() {
+  source "$CONFIG_DIR/installer.env"
+  install -m 0750 "${INSTALLER_SOURCE_DIR}/services/vpn-api.py" /opt/vpn-api.py
+  install -m 0750 "${INSTALLER_SOURCE_DIR}/services/coa-api.py" /opt/radius-pro/coa_api.py
+  cat > "$CONFIG_DIR/vpn-api.env" <<EOF
+RADIUS_PRO_VPN_API_HOST=127.0.0.1
+RADIUS_PRO_VPN_API_PORT=8080
+RADIUS_PRO_VPN_API_KEY=${RADIUS_PRO_VPN_API_KEY}
+RADIUS_PRO_DB_HOST=127.0.0.1
+RADIUS_PRO_DB_PORT=3306
+RADIUS_PRO_DB_USER=radiuspro
+RADIUS_PRO_DB_PASSWORD=${RADIUS_PRO_APP_DB_PASSWORD}
+RADIUS_PRO_DB_NAME=radius_pro
+RADIUS_PRO_L2TP_POOL_START=192.168.30.10
+RADIUS_PRO_L2TP_POOL_END=192.168.30.250
+RADIUS_PRO_L2TP_LOCAL_IP=192.168.30.1
+RADIUS_PRO_SSTP_POOL_START=192.168.31.100
+RADIUS_PRO_SSTP_POOL_END=192.168.31.254
+RADIUS_PRO_SSTP_LOCAL_IP=192.168.31.1
+RADIUS_PRO_PPTP_POOL_START=192.168.32.10
+RADIUS_PRO_PPTP_POOL_END=192.168.32.245
+RADIUS_PRO_PPTP_LOCAL_IP=192.168.32.1
+EOF
+  cat > "$CONFIG_DIR/coa-api.env" <<EOF
+VPS_COA_API_KEY=${VPS_COA_API_KEY}
+EOF
+  chmod 600 "$CONFIG_DIR/vpn-api.env" "$CONFIG_DIR/coa-api.env"
+  cat > /etc/systemd/system/radius-pro-vpn-api.service <<'EOF'
 [Unit]
-Description=Radius Pro CoA API
-After=network.target
-
+Description=Radius Pro local VPN API
+After=network-online.target mysql.service
+Wants=network-online.target
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/radius-pro-apis
-ExecStart=/usr/bin/python3 /opt/radius-pro-apis/coa_api.py
+EnvironmentFile=/etc/radius-pro/vpn-api.env
+ExecStart=/usr/bin/python3 /opt/vpn-api.py
 Restart=always
 RestartSec=5
-Environment=PORT=8082
-
 [Install]
 WantedBy=multi-user.target
-COA_SVC
-
+EOF
+  cat > /etc/systemd/system/radius-pro-coa-api.service <<'EOF'
+[Unit]
+Description=Radius Pro local CoA API
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+EnvironmentFile=/etc/radius-pro/coa-api.env
+WorkingDirectory=/opt/radius-pro
+ExecStart=/usr/bin/python3 /opt/radius-pro/coa_api.py
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target
+EOF
   systemctl daemon-reload
-  systemctl enable radius-pro-management radius-pro-coa
-  systemctl start radius-pro-management radius-pro-coa 2>/dev/null || true
-  log "Python APIs configured ✓"
+  log "loopback-only VPN and CoA APIs configured"
 }
 
-# =============================================================================
-# SECTION 11: PM2 APPLICATION SERVICE
-# =============================================================================
-setup_pm2() {
-  header "11. PM2 Application Service"
-
-  cat > "$INSTALL_DIR/ecosystem.config.cjs" << PM2_ECO
-module.exports = {
-  apps: [{
-    name: 'radius-pro',
-    script: './dist/index.js',
-    cwd: '${INSTALL_DIR}',
-    instances: 1,
-    exec_mode: 'fork',
-    env: {
-      NODE_ENV: 'production',
-      PORT: 3000,
-      TZ: 'Asia/Jerusalem'
-    },
-    error_file: '/var/log/radius-pro/error.log',
-    out_file: '/var/log/radius-pro/out.log',
-    log_date_format: 'YYYY-MM-DD HH:mm:ss',
-    restart_delay: 3000,
-    max_restarts: 10,
-    min_uptime: '10s'
-  }]
-};
-PM2_ECO
-
-  mkdir -p /var/log/radius-pro
+configure_application_and_proxy() {
+  source "$CONFIG_DIR/installer.env"
   cd "$INSTALL_DIR"
-  pm2 delete radius-pro 2>/dev/null || true
-  pm2 start ecosystem.config.cjs
+  pm2 start ecosystem.config.cjs --only radius-pro
   pm2 save
-  pm2 startup systemd -u root --hp /root 2>&1 | tail -1 | bash 2>/dev/null || true
-  log "PM2 service configured ✓"
-}
-
-# =============================================================================
-# SECTION 12: NGINX + SSL
-# =============================================================================
-setup_nginx() {
-  header "12. Nginx + SSL Setup"
-
-  # Generate self-signed cert for IP access
-  mkdir -p /etc/ssl/radius-pro
-  openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
-    -keyout /etc/ssl/radius-pro/server.key \
-    -out /etc/ssl/radius-pro/server.crt \
-    -subj "/C=PS/ST=Palestine/L=Ramallah/O=RadiusPro/CN=${DOMAIN}" 2>/dev/null
-
-  # Main site config
-  cat > /etc/nginx/sites-available/radius-pro << NGINX_CONF
+  env PATH="$PATH" pm2 startup systemd -u root --hp /root | tail -n 1 | bash
+  cat > /etc/nginx/sites-available/radius-pro <<'EOF'
 server {
-    listen 80;
-    server_name ${DOMAIN} ${PUBLIC_IP:-_};
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name ${DOMAIN} ${PUBLIC_IP:-_};
-
-    ssl_certificate /etc/ssl/radius-pro/server.crt;
-    ssl_certificate_key /etc/ssl/radius-pro/server.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-
-    # Security headers
-    add_header X-Frame-Options DENY;
-    add_header X-Content-Type-Options nosniff;
-    add_header X-XSS-Protection "1; mode=block";
-
-    client_max_body_size 50M;
-    proxy_read_timeout 300;
-    proxy_connect_timeout 300;
-
+    listen 80 default_server;
+    server_name _;
+    client_max_body_size 50m;
+    location = /api/radius/accounting {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:3000;
+    }
+    location = /api/radius/authorize-card {
+        allow 127.0.0.1;
+        allow ::1;
+        deny all;
+        proxy_pass http://127.0.0.1:3000;
+    }
     location / {
         proxy_pass http://127.0.0.1:3000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 300s;
+        proxy_send_timeout 300s;
     }
 }
-NGINX_CONF
-
-  ln -sf /etc/nginx/sites-available/radius-pro /etc/nginx/sites-enabled/radius-pro 2>/dev/null || true
-  rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
-  nginx -t && systemctl reload nginx
-  log "Nginx configured ✓"
-
-  # Try Let's Encrypt if domain is not localhost/IP
-  if [[ "$DOMAIN" != "localhost" ]] && [[ "$DOMAIN" != "$PUBLIC_IP" ]] && [[ "$DOMAIN" =~ \. ]]; then
-    certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "$ADMIN_EMAIL" 2>/dev/null && \
-      log "Let's Encrypt SSL certificate installed ✓" || \
-      warn "Let's Encrypt failed — using self-signed certificate"
-  else
-    warn "Using self-signed certificate (no domain configured for Let's Encrypt)"
-  fi
+EOF
+  ln -sfn /etc/nginx/sites-available/radius-pro /etc/nginx/sites-enabled/radius-pro
+  rm -f /etc/nginx/sites-enabled/default
+  nginx -t
+  systemctl enable nginx
+  log "PM2 application and Nginx reverse proxy configured"
 }
 
-# =============================================================================
-# SECTION 13: FIREWALL
-# =============================================================================
-setup_firewall() {
-  header "13. Firewall Setup"
-
-  ufw --force reset > /dev/null 2>&1
-  ufw default deny incoming > /dev/null 2>&1
-  ufw default allow outgoing > /dev/null 2>&1
-
-  ufw allow "$SSH_PORT/tcp" comment "SSH"
-  ufw allow 80/tcp comment "HTTP"
-  ufw allow 443/tcp comment "HTTPS"
-  ufw allow 1812/udp comment "RADIUS Auth"
-  ufw allow 1813/udp comment "RADIUS Acct"
+configure_firewall_and_maintenance() {
+  source "$CONFIG_DIR/installer.env"
+  local ssh_port="${RADIUS_PRO_SSH_PORT:-22}"
+  ufw default deny incoming
+  ufw default allow outgoing
+  ufw allow "${ssh_port}/tcp" comment "SSH"
+  ufw allow 80/tcp comment "Radius Pro HTTP"
+  ufw allow 1812/udp comment "RADIUS authentication"
+  ufw allow 1813/udp comment "RADIUS accounting"
   ufw allow 3799/udp comment "RADIUS CoA"
+  ufw allow 500/udp comment "IPsec IKE"
+  ufw allow 4500/udp comment "IPsec NAT-T"
   ufw allow 1701/udp comment "L2TP"
-  ufw allow 500/udp comment "IKE"
-  ufw allow 4500/udp comment "IPSec NAT-T"
   ufw allow 1723/tcp comment "PPTP"
-
-  # Allow VPN subnets
-  ufw allow from 192.168.30.0/24 comment "VPN L2TP subnet"
-  ufw allow from 192.168.31.0/24 comment "VPN PPTP subnet"
-
-  # Block MySQL and Redis from external
-  ufw deny 3306/tcp comment "MySQL - local only"
-  ufw deny 6379/tcp comment "Redis - local only"
-
-  ufw --force enable > /dev/null 2>&1
-  log "Firewall configured ✓"
-
-  # Fail2ban
-  cat > /etc/fail2ban/jail.local << F2B
-[DEFAULT]
-bantime = 3600
-findtime = 600
-maxretry = 5
-
-[sshd]
-enabled = true
-port = ${SSH_PORT}
-
-[nginx-http-auth]
-enabled = true
-F2B
-  systemctl enable fail2ban
-  systemctl restart fail2ban 2>/dev/null || true
-  log "Fail2ban configured ✓"
-}
-
-# =============================================================================
-# SECTION 14: BACKUP SYSTEM
-# =============================================================================
-setup_backup() {
-  header "14. Backup System"
-
-  mkdir -p "$BACKUP_DIR"
-
-  cat > /usr/local/bin/radius-pro-backup << BACKUP_SCRIPT
-#!/bin/bash
-BACKUP_DIR="${BACKUP_DIR}"
-TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
-BACKUP_FILE="\${BACKUP_DIR}/radius_pro_\${TIMESTAMP}.sql.gz"
-
-# MySQL backup
-mysqldump -u radiuspro -p"${MYSQL_APP_PASS}" radius_pro | gzip > "\$BACKUP_FILE"
-
-# Keep last 30 backups
-ls -t "\${BACKUP_DIR}"/*.sql.gz 2>/dev/null | tail -n +31 | xargs rm -f 2>/dev/null || true
-
-echo "[\$(date)] Backup completed: \$BACKUP_FILE" >> /var/log/radius-pro-backup.log
-BACKUP_SCRIPT
-  chmod +x /usr/local/bin/radius-pro-backup
-
-  # Daily cron at 2 AM
-  echo "0 2 * * * root /usr/local/bin/radius-pro-backup" > /etc/cron.d/radius-pro-backup
-  log "Backup system configured (daily at 2 AM) ✓"
-}
-
-# =============================================================================
-# SECTION 15: LOGGING
-# =============================================================================
-setup_logging() {
-  header "15. Logging & Log Rotation"
-
-  cat > /etc/logrotate.d/radius-pro << LOGROTATE
+  ufw allow proto gre comment "PPTP GRE"
+  ufw allow 8443/tcp comment "SSTP"
+  ufw --force enable
+  cat > /usr/local/bin/radius-pro-backup <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+source /root/.mysql_credentials
+stamp=$(date -u +%Y%m%d-%H%M%S)
+target=/var/backups/radius-pro
+mkdir -p "$target"
+mysqldump -uroot -p"$MYSQL_ROOT_PASS" --single-transaction --routines --triggers radius_pro | gzip > "$target/radius_pro_${stamp}.sql.gz"
+tar -czf "$target/radius_pro_config_${stamp}.tar.gz" /etc/radius-pro /etc/freeradius /etc/ipsec.conf /etc/ipsec.secrets /etc/xl2tpd /etc/ppp /etc/accel-ppp.conf /etc/nginx/sites-enabled/radius-pro /opt/radius-pro/.env /opt/radius-pro/.release-manifest /opt/vpn-api.py
+find "$target" -type f -mtime +30 -delete
+EOF
+  chmod 700 /usr/local/bin/radius-pro-backup
+  cat > /etc/cron.d/radius-pro-backup <<'EOF'
+0 2 * * * root /usr/local/bin/radius-pro-backup >/var/log/radius-pro/backup.log 2>&1
+EOF
+  cat > /etc/logrotate.d/radius-pro <<'EOF'
 /var/log/radius-pro/*.log {
   daily
-  rotate 7
-  compress
-  missingok
-  notifempty
-  sharedscripts
-  postrotate
-    pm2 reloadLogs 2>/dev/null || true
-  endscript
-}
-
-/var/log/freeradius/*.log {
-  daily
   rotate 14
   compress
   missingok
   notifempty
 }
-
-/var/log/nginx/*.log {
-  daily
-  rotate 14
-  compress
-  missingok
-  notifempty
-  sharedscripts
-  postrotate
-    nginx -s reopen 2>/dev/null || true
-  endscript
-}
-LOGROTATE
-  log "Log rotation configured ✓"
+EOF
+  systemctl enable --now cron fail2ban
+  log "firewall, backup and log rotation configured"
 }
 
-# =============================================================================
-# SECTION 16: HEALTH MONITOR
-# =============================================================================
-setup_health_monitor() {
-  header "16. Health Monitor"
-
-  cat > /usr/local/bin/radius-pro-health << 'HEALTH_SCRIPT'
-#!/bin/bash
-echo "=== Radius Pro Health Check ==="
-echo "Time: $(date)"
-echo ""
-
-check() {
-  local name="$1"; local cmd="$2"
-  if eval "$cmd" > /dev/null 2>&1; then
-    echo "  ✅ $name"
-  else
-    echo "  ❌ $name — FAILED"
-  fi
-}
-
-check "MySQL"      "mysqladmin ping -u radiuspro --silent 2>/dev/null"
-check "Redis"      "redis-cli ping > /dev/null 2>&1"
-check "FreeRADIUS" "systemctl is-active --quiet freeradius"
-check "Nginx"      "systemctl is-active --quiet nginx"
-check "PM2 App"    "pm2 list 2>/dev/null | grep -q 'radius-pro'"
-check "CoA API"    "curl -s http://127.0.0.1:8082/health > /dev/null"
-check "Mgmt API"   "curl -s http://127.0.0.1:8081/health > /dev/null"
-
-echo ""
-echo "=== System Resources ==="
-echo "  CPU:  $(top -bn1 | grep 'Cpu(s)' | awk '{print $2}')% used"
-echo "  RAM:  $(free -h | awk '/^Mem:/{print $3 "/" $2}')"
-echo "  Disk: $(df -h / | awk 'NR==2{print $3 "/" $2 " (" $5 " used)"}')"
-HEALTH_SCRIPT
-  chmod +x /usr/local/bin/radius-pro-health
-  log "Health monitor installed at /usr/local/bin/radius-pro-health ✓"
-}
-
-# =============================================================================
-# SECTION 17: VERIFICATION
-# =============================================================================
-verify_installation() {
-  header "17. End-to-End Verification"
-
-  PASS=0; FAIL=0
-  result() {
-    local name="$1"; local status="$2"
-    if [ "$status" = "PASS" ]; then
-      echo -e "  ${GREEN}✅ $name${NC}: PASS"; ((PASS++))
-    else
-      echo -e "  ${RED}❌ $name${NC}: FAIL"; ((FAIL++))
-    fi
-  }
-
-  # MySQL
-  mysqladmin ping -u radiuspro -p"${MYSQL_APP_PASS}" --silent 2>/dev/null && \
-    result "MySQL Connection" "PASS" || result "MySQL Connection" "FAIL"
-
-  # Redis
-  redis-cli -a "$REDIS_PASS" ping 2>/dev/null | grep -q PONG && \
-    result "Redis Connection" "PASS" || result "Redis Connection" "FAIL"
-
-  # Database schema
-  TABLE_COUNT=$(mysql -u radiuspro -p"${MYSQL_APP_PASS}" radius_pro -e "SHOW TABLES;" 2>/dev/null | wc -l)
-  [ "$TABLE_COUNT" -gt 10 ] && \
-    result "Database Schema (${TABLE_COUNT} tables)" "PASS" || result "Database Schema" "FAIL"
-
-  # FreeRADIUS
-  systemctl is-active --quiet freeradius && \
-    result "FreeRADIUS Service" "PASS" || result "FreeRADIUS Service" "FAIL"
-
-  # FreeRADIUS Auth test
-  radtest test-user test-pass 127.0.0.1 0 "$RADIUS_DEFAULT_SECRET" 2>/dev/null | grep -q "Received" && \
-    result "FreeRADIUS Auth Test" "PASS" || result "FreeRADIUS Auth Test" "PASS"  # Pass even if user not found
-
-  # Nginx
-  systemctl is-active --quiet nginx && \
-    result "Nginx Service" "PASS" || result "Nginx Service" "FAIL"
-
-  # Application
+start_and_verify() {
+  source "$CONFIG_DIR/installer.env"
+  systemctl enable --now strongswan-starter xl2tpd pptpd accel-ppp radius-pro-vpn-api radius-pro-coa-api freeradius nginx
   sleep 5
-  HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:3000/ 2>/dev/null)
-  [ "$HTTP_CODE" = "200" ] && \
-    result "Application (HTTP $HTTP_CODE)" "PASS" || result "Application (HTTP $HTTP_CODE)" "FAIL"
+  set -a
+  source "$CONFIG_DIR/installer.env"
+  set +a
+  "${INSTALLER_SOURCE_DIR}/scripts/verify-install.sh"
+  /usr/local/bin/radius-pro-backup
+  cat > /root/AGENTS.md <<EOF
+# Radius Pro Local V2 — Production Installation
 
-  # PM2
-  pm2 list 2>/dev/null | grep -q "radius-pro" && \
-    result "PM2 Service" "PASS" || result "PM2 Service" "FAIL"
-
-  # CoA API
-  curl -s http://127.0.0.1:8082/health 2>/dev/null | grep -q "ok" && \
-    result "CoA API" "PASS" || result "CoA API" "FAIL"
-
-  # Firewall
-  ufw status 2>/dev/null | grep -q "active" && \
-    result "Firewall (UFW)" "PASS" || result "Firewall (UFW)" "FAIL"
-
-  # Backup
-  [ -x /usr/local/bin/radius-pro-backup ] && \
-    result "Backup Script" "PASS" || result "Backup Script" "FAIL"
-
-  # VPN
-  systemctl is-active --quiet xl2tpd 2>/dev/null && \
-    result "L2TP/IPSec VPN" "PASS" || result "L2TP/IPSec VPN" "FAIL"
-
-  echo ""
-  echo -e "${BOLD}══════════════════════════════════════════${NC}"
-  echo -e "${BOLD}  Radius Pro Local V2${NC}"
-  echo -e "${BOLD}  INSTALLATION COMPLETE${NC}"
-  echo -e "${BOLD}══════════════════════════════════════════${NC}"
-  echo ""
-  printf "  %-20s %s\n" "Application:"  "$([ $FAIL -eq 0 ] && echo PASS || echo CHECK)"
-  printf "  %-20s %s\n" "MySQL:"        "PASS"
-  printf "  %-20s %s\n" "Redis:"        "PASS"
-  printf "  %-20s %s\n" "FreeRADIUS:"   "PASS"
-  printf "  %-20s %s\n" "VPN:"          "PASS"
-  printf "  %-20s %s\n" "Nginx:"        "PASS"
-  printf "  %-20s %s\n" "Firewall:"     "PASS"
-  printf "  %-20s %s\n" "Backup:"       "PASS"
-  echo ""
-  echo -e "  ${GREEN}Status: PRODUCTION READY${NC}"
-  echo ""
-  echo -e "  ${BOLD}Access URLs:${NC}"
-  echo -e "    HTTP:  http://${PUBLIC_IP:-YOUR_IP}"
-  echo -e "    HTTPS: https://${DOMAIN}"
-  echo ""
-  echo -e "  ${BOLD}Admin Credentials:${NC}"
-  echo -e "    Username: ${OWNER_USERNAME}"
-  echo -e "    Password: ${OWNER_PASSWORD}"
-  echo ""
-  echo -e "  ${BOLD}Saved credentials:${NC} /root/.mysql_credentials"
-  echo -e "  ${BOLD}Install log:${NC} ${LOG_FILE}"
-  echo ""
-  echo -e "${BOLD}══════════════════════════════════════════${NC}"
-}
-
-# =============================================================================
-# SECTION 18: SAVE AGENTS.MD
-# =============================================================================
-save_agents_md() {
-  cat > /root/AGENTS.md << AGENTS_MD
-# AGENTS.md — Radius Pro Local V2 VPS
-
-## Installed: $(date)
-## Version: ${INSTALLER_VERSION}
-
-## Services
-- MySQL 8: localhost:3306 (db: radius_pro, user: radiuspro)
-- Redis: localhost:6379 (authenticated)
-- FreeRADIUS: 0.0.0.0:1812/1813, 127.0.0.1:18120
-- Application: localhost:3000 (PM2: radius-pro)
-- Nginx: 80/443 → 3000
-- Management API: localhost:8081
-- CoA API: localhost:8082
-- L2TP/IPSec: 1701/500/4500
-- PPTP/SSTP: 1723/443 (accel-ppp)
-
-## Paths
+- Release: ${RELEASE_VERSION}
 - App: ${INSTALL_DIR}
+- App environment: ${INSTALL_DIR}/.env
+- System secrets: ${CONFIG_DIR}/installer.env
+- VPN API environment: ${CONFIG_DIR}/vpn-api.env
+- MySQL credentials: /root/.mysql_credentials
 - Backups: ${BACKUP_DIR}
-- Logs: /var/log/radius-pro/
-- FreeRADIUS: /etc/freeradius/3.0/
-- Credentials: /root/.mysql_credentials
+- Verification: /root/radius-pro-installer/scripts/verify-install.sh
+- Health: curl http://127.0.0.1:3000/health
 
-## Commands
-- Health check: radius-pro-health
-- Backup: radius-pro-backup
-- App logs: pm2 logs radius-pro
-- App restart: pm2 restart radius-pro
-
-## VPN
-- L2TP subnet: 192.168.30.0/24
-- PPTP subnet: 192.168.31.0/24
-- Bridge: radius-bridge (192.168.30.1)
-AGENTS_MD
-  log "AGENTS.md saved to /root/AGENTS.md ✓"
+The installed system uses local MySQL, Redis, local file storage, FreeRADIUS 3, L2TP/IPsec, PPTP and SSTP on 8443. NAS isolation is fail-closed in FreeRADIUS. Do not modify FreeRADIUS, VPN or firewall settings without a full backup and explicit approval.
+EOF
+  chmod 600 /root/AGENTS.md
+  log "Radius Pro ${RELEASE_VERSION} installation completed successfully"
+  printf '\nInstallation complete. Credentials are stored at %s/installer.env\n' "$CONFIG_DIR"
 }
 
-# =============================================================================
-# MAIN EXECUTION
-# =============================================================================
 main() {
-  clear
-  echo -e "${BOLD}${CYAN}"
-  echo "  ██████╗  █████╗ ██████╗ ██╗██╗   ██╗███████╗    ██████╗ ██████╗  ██████╗ "
-  echo "  ██╔══██╗██╔══██╗██╔══██╗██║██║   ██║██╔════╝    ██╔══██╗██╔══██╗██╔═══██╗"
-  echo "  ██████╔╝███████║██║  ██║██║██║   ██║███████╗    ██████╔╝██████╔╝██║   ██║"
-  echo "  ██╔══██╗██╔══██║██║  ██║██║██║   ██║╚════██║    ██╔═══╝ ██╔══██╗██║   ██║"
-  echo "  ██║  ██║██║  ██║██████╔╝██║╚██████╔╝███████║    ██║     ██║  ██║╚██████╔╝"
-  echo "  ╚═╝  ╚═╝╚═╝  ╚═╝╚═════╝ ╚═╝ ╚═════╝ ╚══════╝    ╚═╝     ╚═╝  ╚═╝ ╚═════╝ "
-  echo -e "${NC}"
-  echo -e "${BOLD}  Local V2 — Full Auto Installer v${INSTALLER_VERSION}${NC}"
-  echo ""
-
-  case "$MODE" in
-    install)
-      check_system
-      collect_config
-      install_dependencies
-      setup_mysql
-      setup_redis
-      setup_freeradius
-      setup_vpn
-      setup_network
-      deploy_application
-      setup_python_apis
-      setup_pm2
-      setup_nginx
-      setup_firewall
-      setup_backup
-      setup_logging
-      setup_health_monitor
-      save_agents_md
-      verify_installation
-      ;;
-    upgrade)
-      info "Upgrade mode — backing up and updating application..."
-      /usr/local/bin/radius-pro-backup
-      deploy_application
-      setup_pm2
-      verify_installation
-      ;;
-    repair)
-      info "Repair mode — checking and fixing services..."
-      setup_mysql
-      setup_redis
-      setup_freeradius
-      setup_pm2
-      setup_nginx
-      verify_installation
-      ;;
-    uninstall)
-      warn "Uninstall mode — this will remove Radius Pro Local V2"
-      read -rp "Are you sure? Type 'YES' to confirm: " CONFIRM_UNINSTALL
-      if [ "$CONFIRM_UNINSTALL" = "YES" ]; then
-        pm2 delete radius-pro 2>/dev/null || true
-        systemctl stop radius-pro-management radius-pro-coa 2>/dev/null || true
-        systemctl disable radius-pro-management radius-pro-coa 2>/dev/null || true
-        rm -f /etc/systemd/system/radius-pro-*.service
-        rm -rf "$INSTALL_DIR"
-        log "Radius Pro Local V2 uninstalled"
-      fi
-      ;;
-    *)
-      error "Unknown mode: $MODE. Use: install | upgrade | repair | uninstall"
-      exit 1
-      ;;
-  esac
+  bootstrap_from_remote "$@"
+  load_release_version
+  check_system
+  create_secrets
+  install_packages
+  install_accel_ppp
+  configure_mysql
+  configure_redis
+  stage_application
+  configure_radius
+  configure_vpn
+  configure_local_apis
+  configure_application_and_proxy
+  configure_firewall_and_maintenance
+  start_and_verify
 }
 
 main "$@"

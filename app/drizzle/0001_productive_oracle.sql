@@ -1,0 +1,1 @@
+ALTER TABLE `nas` ADD `connectionType` enum('public_ip','vpn_pptp','vpn_sstp') DEFAULT 'public_ip';

@@ -1,0 +1,1 @@
+ALTER TABLE `radius_cards` ADD `fullName` varchar(255);

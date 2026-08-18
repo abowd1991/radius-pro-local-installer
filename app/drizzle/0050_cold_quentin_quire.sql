@@ -1,0 +1,1 @@
+ALTER TABLE `network_routers` ADD `webPort` int DEFAULT 80;

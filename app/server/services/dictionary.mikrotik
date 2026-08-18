@@ -1,0 +1,32 @@
+VENDOR          MikroTik        14988
+
+BEGIN-VENDOR    MikroTik
+ATTRIBUTE       Mikrotik-Rate-Limit             8       string
+ATTRIBUTE       Mikrotik-Realm                  9       string
+ATTRIBUTE       Mikrotik-Host-IP                10      ipaddr
+ATTRIBUTE       Mikrotik-Mark-Id                11      string
+ATTRIBUTE       Mikrotik-Advertise-URL          12      string
+ATTRIBUTE       Mikrotik-Advertise-Interval     13      integer
+ATTRIBUTE       Mikrotik-Recv-Limit             14      integer
+ATTRIBUTE       Mikrotik-Xmit-Limit             15      integer
+ATTRIBUTE       Mikrotik-Group                  16      string
+ATTRIBUTE       Mikrotik-Wireless-Forward       17      integer
+ATTRIBUTE       Mikrotik-Wireless-Skip-Dot1x    18      integer
+ATTRIBUTE       Mikrotik-Wireless-Enc-Algo      19      integer
+ATTRIBUTE       Mikrotik-Wireless-Enc-Key       20      string
+ATTRIBUTE       Mikrotik-Rate-Limit-Burst       21      string
+ATTRIBUTE       Mikrotik-Wireless-PSK           22      string
+ATTRIBUTE       Mikrotik-Total-Limit            23      integer
+ATTRIBUTE       Mikrotik-Total-Limit-Gigawords  24      integer
+ATTRIBUTE       Mikrotik-Address-List           25      string
+ATTRIBUTE       Mikrotik-Wireless-MPKey         26      string
+ATTRIBUTE       Mikrotik-Wireless-Comment       27      string
+ATTRIBUTE       Mikrotik-Delegated-IPv6-Pool    28      string
+ATTRIBUTE       Mikrotik-DHCP-Option-Set        29      string
+ATTRIBUTE       Mikrotik-DHCP-Option-Param-STR1 30      string
+ATTRIBUTE       Mikrotik-DHCP-Option-Param-STR2 31      string
+ATTRIBUTE       Mikrotik-Wireless-VLANID        32      integer
+ATTRIBUTE       Mikrotik-Wireless-VLANIDtype    33      integer
+ATTRIBUTE       Mikrotik-Wireless-Minsignal     34      string
+ATTRIBUTE       Mikrotik-Wireless-Maxsignal     35      string
+END-VENDOR      MikroTik

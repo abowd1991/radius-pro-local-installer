@@ -1,0 +1,96 @@
+server default {
+  listen {
+    type = auth
+    ipaddr = *
+    port = 1812
+    require_message_authenticator = yes
+  }
+  listen {
+    type = acct
+    ipaddr = *
+    port = 1813
+  }
+  listen {
+    type = auth+acct
+    ipaddr = 127.0.0.1
+    port = 18120
+  }
+
+  authorize {
+    preprocess
+    chap
+    mschap
+    suffix
+    eap {
+      ok = return
+    }
+    # === NAS Isolation via Huntgroups (Fail-Closed) ===
+    # Every NAS must be registered in radhuntgroup. A card is accepted only
+    # when it shares at least one assigned group with that NAS.
+    update request {
+      Tmp-String-0 := "%{sql:SELECT COUNT(*) FROM radhuntgroup WHERE nasipaddress='%{NAS-IP-Address}'}"
+    }
+    if (Tmp-String-0 == '0') {
+      reject
+    }
+    update request {
+      Tmp-String-1 := "%{sql:SELECT COUNT(*) FROM radusergroup rug JOIN radhuntgroup rhg ON rug.groupname = rhg.groupname WHERE rug.username = '%{User-Name}' AND rhg.nasipaddress = '%{NAS-IP-Address}'}"
+    }
+    if (Tmp-String-1 == '0') {
+      update reply {
+        Reply-Message := "هذا الكرت غير مسموح على هذه الشبكة"
+      }
+      reject
+    }
+    sql
+    authorization_bridge
+    if (reject) {
+      reject
+    }
+    if (fail) {
+      reject
+    }
+    expiration
+    pap
+  }
+
+  authenticate {
+    Auth-Type PAP {
+      pap
+    }
+    Auth-Type CHAP {
+      chap
+    }
+    Auth-Type MS-CHAP {
+      mschap
+    }
+    eap
+  }
+
+  preacct {
+    preprocess
+    acct_unique
+    suffix
+    files
+  }
+
+  accounting {
+    #detail
+    #unix
+    sql
+    accounting_bridge
+    attr_filter.accounting_response
+  }
+
+  session {
+    sql
+  }
+
+  post-auth {
+    sql
+    accounting_bridge
+    Post-Auth-Type REJECT {
+      sql
+    }
+  }
+}

@@ -1,0 +1,21 @@
+CREATE TABLE `bank_transfer_requests` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`userId` int NOT NULL,
+	`requestedAmount` decimal(12,2) NOT NULL,
+	`transferredAmount` decimal(12,2) NOT NULL,
+	`transferredCurrency` enum('ILS','USD') NOT NULL,
+	`exchangeRate` decimal(10,6) NOT NULL,
+	`finalAmountUSD` decimal(12,2) NOT NULL,
+	`receiptImageUrl` text NOT NULL,
+	`referenceNumber` varchar(50) NOT NULL,
+	`ocrData` json,
+	`status` enum('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+	`submittedAt` timestamp NOT NULL DEFAULT (now()),
+	`reviewedAt` timestamp,
+	`reviewedBy` int,
+	`adminNotes` text,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `bank_transfer_requests_id` PRIMARY KEY(`id`),
+	CONSTRAINT `bank_transfer_requests_referenceNumber_unique` UNIQUE(`referenceNumber`)
+);

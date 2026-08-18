@@ -1,0 +1,1 @@
+ALTER TABLE `site_settings` ADD `clientDailyImportLimit` int DEFAULT 1000 NOT NULL;

@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>Radius Pro - منصة إدارة RADIUS السحابية</title>
+    <meta name="description" content="منصة SaaS متكاملة لإدارة FreeRADIUS مع MikroTik، تشمل لوحات تحكم متعددة، نظام الكروت والبطاقات، وإدارة Hotspot" />
+
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-192.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon-192.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://radius-pro.com/" />
+    <meta property="og:title" content="Radius Pro - منصة إدارة RADIUS السحابية" />
+    <meta property="og:description" content="منصة SaaS متكاملة لإدارة FreeRADIUS مع MikroTik، تشمل لوحات تحكم متعددة، نظام الكروت والبطاقات، وإدارة Hotspot" />
+    <meta property="og:image" content="https://radius-pro.com/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Radius Pro - منصة إدارة RADIUS السحابية" />
+    <meta name="twitter:description" content="منصة SaaS متكاملة لإدارة FreeRADIUS مع MikroTik، تشمل لوحات تحكم متعددة، نظام الكروت والبطاقات، وإدارة Hotspot" />
+    <meta name="twitter:image" content="https://radius-pro.com/og-image.jpg" />
+
+    <link rel="canonical" href="https://radius-pro.com/" />
+
+    <!-- Cairo Font is self-hosted via /fonts/ directory -->
+  </head>
+
+  <body>
+    <div id="root">
+      <!-- Instant loading screen shown before React hydrates -->
+      <div id="app-loader" style="
+        position:fixed;inset:0;display:flex;flex-direction:column;
+        align-items:center;justify-content:center;
+        background:#0a0a1a;z-index:99999;
+        font-family:'Cairo',sans-serif;
+      ">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:20px">
+          <!-- Logo -->
+          <div style="display:flex;align-items:center;gap:12px">
+            <div style="
+              width:48px;height:48px;border-radius:12px;
+              background:linear-gradient(135deg,#7c3aed,#a855f7);
+              display:flex;align-items:center;justify-content:center;
+              box-shadow:0 0 24px rgba(124,58,237,0.5);
+            ">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path d="M1 6l5 5-5 5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 12h15" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+                <circle cx="19" cy="12" r="2" fill="#a855f7" stroke="#fff" stroke-width="1.5"/>
+              </svg>
+            </div>
+            <span style="color:#fff;font-size:22px;font-weight:700;letter-spacing:-0.5px">
+              Radius <span style="color:#a855f7">Pro</span>
+            </span>
+          </div>
+          <!-- Spinner -->
+          <div style="
+            width:40px;height:40px;border-radius:50%;
+            border:3px solid rgba(168,85,247,0.2);
+            border-top-color:#a855f7;
+            animation:spin 0.8s linear infinite;
+          "></div>
+          <p style="color:rgba(255,255,255,0.5);font-size:13px;margin:0">جاري التحميل...</p>
+        </div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script
+      defer
+      src="%VITE_ANALYTICS_ENDPOINT%/umami"
+      data-website-id="%VITE_ANALYTICS_WEBSITE_ID%"></script>
+  </body>
+
+</html>

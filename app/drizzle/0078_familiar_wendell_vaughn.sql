@@ -1,0 +1,2 @@
+ALTER TABLE `nas` MODIFY COLUMN `connectionType` enum('public_ip','vpn_sstp','vpn_l2tp','vpn_pptp') DEFAULT 'public_ip';--> statement-breakpoint
+ALTER TABLE `vpn_connections` MODIFY COLUMN `connectionType` enum('public_ip','vpn_sstp','vpn_l2tp','vpn_pptp') NOT NULL;

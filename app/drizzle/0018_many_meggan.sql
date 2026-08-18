@@ -1,0 +1,2 @@
+ALTER TABLE `users` MODIFY COLUMN `role` enum('owner','super_admin','client_owner','client_admin','client_staff','reseller','client','support') NOT NULL DEFAULT 'client';--> statement-breakpoint
+ALTER TABLE `users` ADD `tenantId` int;

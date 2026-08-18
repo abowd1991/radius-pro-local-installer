@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>رفع إيصال الدفع</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: Arial, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    background: #1e293b;
+    border-radius: 16px;
+    padding: 28px 20px;
+    width: 100%;
+    max-width: 420px;
+    border: 1px solid #334155;
+  }
+  h1 {
+    font-size: 20px;
+    color: #22d3ee;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .subtitle {
+    font-size: 13px;
+    color: #64748b;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  label.file-btn {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #0e7490, #1d4ed8);
+    color: #fff;
+    font-size: 17px;
+    font-weight: bold;
+    text-align: center;
+    border-radius: 12px;
+    cursor: pointer;
+    margin-bottom: 10px;
+  }
+  input[type=file] {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    color: #94a3b8;
+    font-size: 14px;
+    cursor: pointer;
+    margin-bottom: 16px;
+  }
+  #preview-wrap { display: none; margin-bottom: 16px; text-align: center; }
+  #preview-wrap img {
+    max-width: 100%;
+    max-height: 220px;
+    border-radius: 10px;
+    border: 1px solid #334155;
+    object-fit: contain;
+  }
+  button.submit-btn {
+    display: block;
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #06b6d4, #2563eb);
+    color: #fff;
+    font-size: 17px;
+    font-weight: bold;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  button.submit-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  #msg {
+    margin-top: 14px;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 14px;
+    text-align: center;
+    display: none;
+  }
+  #msg.success { background: #064e3b; color: #6ee7b7; border: 1px solid #059669; }
+  #msg.error   { background: #450a0a; color: #fca5a5; border: 1px solid #dc2626; }
+  .note { font-size: 11px; color: #475569; text-align: center; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>📤 رفع إيصال الدفع</h1>
+  <p class="subtitle" id="order-info">جاري تحميل بيانات الطلب...</p>
+
+  <label class="file-btn" for="file-input">📎 اختر صورة الإيصال</label>
+  <input type="file" id="file-input" accept="image/*" onchange="previewFile(this)">
+
+  <div id="preview-wrap">
+    <img id="preview-img" src="" alt="معاينة الإيصال">
+  </div>
+
+  <button class="submit-btn" id="submit-btn" onclick="uploadReceipt()" disabled>
+    ✅ إرسال الطلب
+  </button>
+  <div id="msg"></div>
+  <p class="note">سيتم مراجعة الإيصال وإرسال البطاقة إليك خلال أقل من ساعة</p>
+</div>
+
+<script>
+var orderId = null;
+var fileData = null;
+var fileMime = 'image/jpeg';
+
+// قراءة orderId من URL: /upload-receipt?order=123
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  orderId = parseInt(params.get('order'));
+  if (!orderId) {
+    document.getElementById('order-info').textContent = 'رقم الطلب غير موجود';
+    return;
+  }
+  document.getElementById('order-info').textContent = 'طلب رقم #' + orderId;
+})();
+
+function previewFile(input) {
+  var file = input.files[0];
+  if (!file) return;
+  fileMime = file.type || 'image/jpeg';
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    fileData = e.target.result.split(',')[1]; // base64 only
+    document.getElementById('preview-img').src = e.target.result;
+    document.getElementById('preview-wrap').style.display = 'block';
+    document.getElementById('submit-btn').disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+
+function uploadReceipt() {
+  if (!fileData || !orderId) return;
+  var btn = document.getElementById('submit-btn');
+  var msg = document.getElementById('msg');
+  btn.disabled = true;
+  btn.textContent = '⏳ جاري الإرسال...';
+  msg.style.display = 'none';
+
+  // استخدام tRPC endpoint مباشرة
+  fetch('/api/trpc/store.uploadReceipt', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      json: {
+        orderId: orderId,
+        receiptBase64: fileData,
+        mimeType: fileMime
+      }
+    })
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.result) {
+      msg.className = 'success';
+      msg.style.display = 'block';
+      msg.textContent = '✅ تم إرسال الإيصال بنجاح! سيتم مراجعته وإرسال البطاقة قريباً.';
+      btn.textContent = '✅ تم الإرسال';
+    } else {
+      throw new Error((data.error && data.error.message) || 'حدث خطأ');
+    }
+  })
+  .catch(function(err) {
+    msg.className = 'error';
+    msg.style.display = 'block';
+    msg.textContent = '❌ ' + (err.message || 'حدث خطأ، حاول مرة أخرى');
+    btn.disabled = false;
+    btn.textContent = '✅ إرسال الطلب';
+  });
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,1 @@
+ALTER TABLE `radius_cards` DROP INDEX `radius_cards_username_unique`;

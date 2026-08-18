@@ -1,0 +1,1 @@
+ALTER TABLE `bank_transfer_requests` ADD `requestedCurrency` enum('ILS','USD') DEFAULT 'USD' NOT NULL;

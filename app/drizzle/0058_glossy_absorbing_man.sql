@@ -1,0 +1,1 @@
+ALTER TABLE `notification_channels` ADD `smsBalance` int DEFAULT 0 NOT NULL;

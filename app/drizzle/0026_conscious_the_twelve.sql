@@ -1,0 +1,1 @@
+ALTER TABLE `radius_cards` ADD `authType` enum('password','username-only') DEFAULT 'password' NOT NULL;

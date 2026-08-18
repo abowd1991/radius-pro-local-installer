@@ -1,0 +1,1 @@
+ALTER TABLE `radius_cards` ADD CONSTRAINT `radius_cards_owner_username_uniq` UNIQUE(`createdBy`,`username`);

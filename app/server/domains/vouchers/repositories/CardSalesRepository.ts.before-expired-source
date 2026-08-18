@@ -1,0 +1,178 @@
+import { asc, eq, inArray, sql } from "drizzle-orm";
+import { cardSales, plans, radiusCards } from "../../../../drizzle/schema";
+import { getDb } from "../../../db";
+import {
+  resolveGranularity,
+  resolveSalesDateRange,
+  type SalesGranularity,
+  type SalesPreset,
+} from "../CardSalesQueryPolicy";
+
+export interface CardSalesFilters {
+  ownerId: number | null;
+  preset: SalesPreset;
+  customStart?: string;
+  customEnd?: string;
+  planId?: number;
+  page?: number;
+  pageSize?: number;
+  granularity?: SalesGranularity;
+}
+
+const asRows = (result: unknown): Record<string, unknown>[] => {
+  const rows = result as [Record<string, unknown>[]];
+  return Array.isArray(rows[0]) ? rows[0] : (result as Record<string, unknown>[]);
+};
+
+const toNumber = (value: unknown) => Number(value ?? 0);
+const sqlDate = (value: Date) => value.toISOString().slice(0, 19).replace("T", " ");
+
+export class CardSalesRepository {
+  async getDashboard(filters: CardSalesFilters) {
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+
+    const range = resolveSalesDateRange(filters.preset, filters.customStart, filters.customEnd);
+    const granularity = resolveGranularity(filters.preset, filters.granularity);
+    const start = sqlDate(range.start);
+    const end = sqlDate(range.end);
+    const previousStart = sqlDate(range.previousStart);
+    const previousEnd = sqlDate(range.previousEnd);
+    const ownerClause = filters.ownerId ? sql`AND cs.ownerId = ${filters.ownerId}` : sql``;
+    const planClause = filters.planId ? sql`AND cs.planId = ${filters.planId}` : sql``;
+    const bucket = granularity === "hour" ? sql`DATE_FORMAT(cs.soldAt, '%Y-%m-%d %H:00')`
+      : granularity === "week" ? sql`DATE_FORMAT(cs.soldAt, '%x-W%v')`
+      : granularity === "month" ? sql`DATE_FORMAT(cs.soldAt, '%Y-%m')`
+      : sql`DATE_FORMAT(cs.soldAt, '%Y-%m-%d')`;
+    const page = Math.max(1, filters.page ?? 1);
+    const pageSize = Math.min(50, Math.max(5, filters.pageSize ?? 15));
+    const offset = (page - 1) * pageSize;
+
+    const [summaryRaw, chartRaw, plansRaw, recentRaw, planOptions] = await Promise.all([
+      db.execute(sql`
+        SELECT 'current' AS tag, COUNT(*) AS cardsSold,
+          COALESCE(SUM(CAST(cs.salePrice AS DECIMAL(12,2))), 0) AS revenue,
+          COALESCE(AVG(CAST(cs.salePrice AS DECIMAL(12,2))), 0) AS averagePrice,
+          MAX(cs.currency) AS currency
+        FROM card_sales cs
+        WHERE cs.soldAt >= ${start} AND cs.soldAt <= ${end} ${ownerClause} ${planClause}
+        UNION ALL
+        SELECT 'previous', COUNT(*),
+          COALESCE(SUM(CAST(cs.salePrice AS DECIMAL(12,2))), 0),
+          COALESCE(AVG(CAST(cs.salePrice AS DECIMAL(12,2))), 0),
+          MAX(cs.currency)
+        FROM card_sales cs
+        WHERE cs.soldAt >= ${previousStart} AND cs.soldAt <= ${previousEnd} ${ownerClause} ${planClause}`),
+      db.execute(sql`
+        SELECT ${bucket} AS period, COUNT(*) AS cardsSold,
+          COALESCE(SUM(CAST(cs.salePrice AS DECIMAL(12,2))), 0) AS revenue
+        FROM card_sales cs
+        WHERE cs.soldAt >= ${start} AND cs.soldAt <= ${end} ${ownerClause} ${planClause}
+        GROUP BY ${bucket} ORDER BY period ASC LIMIT 500`),
+      db.execute(sql`
+        SELECT p.id AS planId, COALESCE(p.nameAr, p.name, 'بدون خطة') AS planName,
+          COUNT(cs.id) AS cardsSold,
+          COALESCE(AVG(CAST(cs.salePrice AS DECIMAL(12,2))), 0) AS unitPrice,
+          COALESCE(SUM(CAST(cs.salePrice AS DECIMAL(12,2))), 0) AS revenue,
+          MAX(cs.currency) AS currency
+        FROM card_sales cs
+        LEFT JOIN plans p ON p.id = cs.planId
+        WHERE cs.soldAt >= ${start} AND cs.soldAt <= ${end} ${ownerClause} ${planClause}
+        GROUP BY p.id, p.name, p.nameAr
+        ORDER BY cardsSold DESC, revenue DESC LIMIT 50`),
+      db.execute(sql`
+        SELECT cs.id, cs.cardId, rc.username, COALESCE(p.nameAr, p.name, 'بدون خطة') AS planName,
+          cs.salePrice, cs.currency, cs.soldAt, cs.source
+        FROM card_sales cs
+        LEFT JOIN radius_cards rc ON rc.id = cs.cardId
+        LEFT JOIN plans p ON p.id = cs.planId
+        WHERE cs.soldAt >= ${start} AND cs.soldAt <= ${end} ${ownerClause} ${planClause}
+        ORDER BY cs.soldAt DESC LIMIT ${pageSize} OFFSET ${offset}`),
+      filters.ownerId
+        ? db.select({ id: plans.id, name: plans.name, nameAr: plans.nameAr, price: plans.price, currency: plans.currency })
+          .from(plans).where(eq(plans.ownerId, filters.ownerId)).orderBy(asc(plans.name))
+        : db.select({ id: plans.id, name: plans.name, nameAr: plans.nameAr, price: plans.price, currency: plans.currency })
+          .from(plans).orderBy(asc(plans.name)),
+    ]);
+
+    const summary = asRows(summaryRaw);
+    const current = summary.find(row => row.tag === "current") ?? {};
+    const previous = summary.find(row => row.tag === "previous") ?? {};
+    const cardsSold = toNumber(current.cardsSold);
+    const previousCards = toNumber(previous.cardsSold);
+    const revenue = toNumber(current.revenue);
+    const previousRevenue = toNumber(previous.revenue);
+    const growth = (currentValue: number, previousValue: number) => previousValue === 0
+      ? (currentValue > 0 ? 100 : 0)
+      : Math.round(((currentValue - previousValue) / previousValue) * 1000) / 10;
+    const byPlanRows = asRows(plansRaw);
+    const recentRows = asRows(recentRaw);
+
+    return {
+      periodStart: range.start.toISOString(),
+      periodEnd: range.end.toISOString(),
+      granularity,
+      networkFilter: { available: false, reason: "لا يوجد سجل موثوق للشبكة وقت البيع بعد" },
+      kpis: {
+        cardsSold,
+        revenue,
+        averagePrice: toNumber(current.averagePrice),
+        cardsGrowth: growth(cardsSold, previousCards),
+        revenueGrowth: growth(revenue, previousRevenue),
+        bestPlan: byPlanRows[0]?.planName ? String(byPlanRows[0].planName) : null,
+        currency: String(current.currency ?? previous.currency ?? "USD"),
+      },
+      chart: asRows(chartRaw).map(row => ({
+        period: String(row.period), cardsSold: toNumber(row.cardsSold), revenue: toNumber(row.revenue),
+      })),
+      byPlan: byPlanRows.map(row => ({
+        planId: toNumber(row.planId), planName: String(row.planName), cardsSold: toNumber(row.cardsSold),
+        unitPrice: toNumber(row.unitPrice), revenue: toNumber(row.revenue), currency: String(row.currency ?? "USD"),
+      })),
+      recentSales: recentRows.map(row => ({
+        id: toNumber(row.id), cardId: toNumber(row.cardId), username: String(row.username ?? "—"),
+        planName: String(row.planName), salePrice: toNumber(row.salePrice), currency: String(row.currency),
+        soldAt: String(row.soldAt), source: String(row.source),
+      })),
+      pagination: { page, pageSize, hasMore: recentRows.length === pageSize },
+      planOptions,
+      dataQuality: {
+        historicalConfirmedSales: cardsSold,
+        legacyActivatedCardsExcluded: true,
+        message: "لا تُعد الكروت المولدة أو المفعلة مبيعات قبل توثيق عملية بيع أو تسليم صريحة.",
+      },
+    };
+  }
+
+  async recordStoreDelivery(input: { cardIds: number[]; ownerId: number; orderId: number }) {
+    if (input.cardIds.length === 0) return;
+    const db = await getDb();
+    if (!db) throw new Error("Database not available");
+    const cards = await db.select({
+      id: radiusCards.id,
+      planId: radiusCards.planId,
+      salePrice: radiusCards.salePrice,
+      currency: plans.currency,
+    }).from(radiusCards)
+      .leftJoin(plans, eq(plans.id, radiusCards.planId))
+      .where(inArray(radiusCards.id, input.cardIds));
+    if (cards.length !== input.cardIds.length) throw new Error("Delivered card does not exist");
+    await db.insert(cardSales).values(cards.map((card: {
+      id: number;
+      planId: number;
+      salePrice: string | null;
+      currency: string | null;
+    }) => ({
+      cardId: card.id,
+      ownerId: input.ownerId,
+      planId: card.planId,
+      salePrice: card.salePrice ?? "0",
+      currency: card.currency ?? "USD",
+      source: "store" as const,
+      referenceType: "store_order",
+      referenceId: input.orderId,
+    }))).onDuplicateKeyUpdate({ set: { cardId: sql`VALUES(cardId)` } });
+  }
+}
+
+export const cardSalesRepository = new CardSalesRepository();
