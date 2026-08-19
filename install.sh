@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.3}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.4}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -156,13 +156,15 @@ install_packages() {
   if ! command -v node >/dev/null 2>&1 || [[ "$(node -v)" != v22.* ]]; then
     install -d -m 0755 /etc/apt/keyrings
     local nodesource_key="/tmp/nodesource-node22.gpg.key"
+    local nodesource_keyring="/tmp/nodesource-node22.gpg"
     curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
       https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o "$nodesource_key"
     local actual_fingerprint
     actual_fingerprint="$(gpg --show-keys --with-colons "$nodesource_key" | awk -F: '$1 == "fpr" {print toupper($10); exit}')"
     [[ "$actual_fingerprint" == "$NODESOURCE_KEY_FINGERPRINT" ]] || die "NodeSource signing key fingerprint verification failed"
-    gpg --dearmor --yes --output /etc/apt/keyrings/nodesource.gpg "$nodesource_key"
-    rm -f "$nodesource_key"
+    gpg --dearmor --yes --output "$nodesource_keyring" "$nodesource_key"
+    install -m 0644 "$nodesource_keyring" /etc/apt/keyrings/nodesource.gpg
+    rm -f "$nodesource_key" "$nodesource_keyring"
     printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
     apt-get update -qq
     apt-get install -y -qq nodejs

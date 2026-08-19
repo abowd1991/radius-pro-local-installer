@@ -48,5 +48,6 @@ run_case 18.04 fail
 
 grep -Fq 'for candidate in libsnmp-dev libnet-snmp-dev; do' "$ROOT_DIR/install.sh"
 grep -Fq '"$snmp_dev_package"' "$ROOT_DIR/install.sh"
+grep -Fq 'install -m 0644 "$nodesource_keyring" /etc/apt/keyrings/nodesource.gpg' "$ROOT_DIR/install.sh"
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'
