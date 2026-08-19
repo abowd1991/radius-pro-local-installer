@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.3}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.4}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -24,6 +24,8 @@ readonly BACKUP_DIR="/var/backups/radius-pro"
 readonly RADIUS_DIR="/etc/freeradius/3.0"
 readonly INSTALL_LOG="/var/log/radius-pro-install.log"
 readonly ACCEL_PPP_COMMIT="b8f6eafe61ffcf6645a51cc2bc13c93cab4955fe"
+readonly PPTPD_SOURCE_COMMIT="5e1efd65708300657d37f179a9758303df85ddf9"
+readonly PPTPD_SOURCE_SHA256="b427bb6f20a33c8736cb475fcd9de61e27c9eb01bccd6b34297e3d6c7cc7c111"
 readonly NODESOURCE_KEY_FINGERPRINT="6F71F525282841EEDAF851B42F59B5F99B1BE0B4"
 
 log() { printf '[radius-pro] %s\n' "$*" | tee -a "$INSTALL_LOG"; }
@@ -173,7 +175,7 @@ install_packages() {
     libgnutls28-dev libreadline-dev libcap-dev libmnl-dev "$snmp_dev_package" \
     mysql-server redis-server nginx ufw fail2ban cron logrotate \
     freeradius freeradius-mysql freeradius-utils \
-    strongswan strongswan-starter strongswan-pki libcharon-extra-plugins xl2tpd ppp pptpd \
+    strongswan strongswan-starter strongswan-pki libcharon-extra-plugins xl2tpd ppp \
     python3 python3-pip python3-venv python3-pymysql python3-mysql.connector python3-flask \
     openssl net-tools iptables
 
@@ -202,6 +204,61 @@ install_packages() {
   command -v pnpm >/dev/null 2>&1 || npm install --global pnpm@10
   command -v pm2 >/dev/null 2>&1 || npm install --global pm2
   log "system packages, Node.js, pnpm and PM2 installed"
+}
+
+install_pptpd_server() {
+  if command -v pptpd >/dev/null 2>&1; then
+    log "PPTP server already present"
+    return
+  fi
+  if apt-cache show pptpd >/dev/null 2>&1; then
+    apt-get install -y -qq pptpd
+    command -v pptpd >/dev/null 2>&1 || die "pptpd package installed but binary is unavailable"
+    log "PPTP server installed from Ubuntu package"
+    return
+  fi
+
+  # Ubuntu removed pptpd from Noble and later. Build the pinned 1.5.0 source
+  # with the optional logwtmp plugin disabled, because PPP 2.4.9 no longer
+  # ships its private options.h header. PPTP authentication itself is unchanged.
+  log "Ubuntu repository has no pptpd package; building pinned PPTP server source"
+  apt-cache show ppp-dev >/dev/null 2>&1 || die "ppp-dev is required to build PPTP when pptpd is unavailable"
+  apt-get install -y -qq ppp-dev autoconf automake libtool
+  local archive="/tmp/pptpd-${PPTPD_SOURCE_COMMIT}.tar.gz"
+  local source_dir="/usr/local/src/pptpd-${PPTPD_SOURCE_COMMIT}"
+  rm -rf "$source_dir" "$archive"
+  curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+    "https://github.com/quozl/pptpd/archive/${PPTPD_SOURCE_COMMIT}.tar.gz" -o "$archive"
+  printf '%s  %s\n' "$PPTPD_SOURCE_SHA256" "$archive" | sha256sum -c - >/dev/null
+  tar -xzf "$archive" -C /usr/local/src
+  mv "/usr/local/src/pptpd-${PPTPD_SOURCE_COMMIT}" "$source_dir"
+  # pptpd-logwtmp is optional. Disabling it removes the obsolete private PPP
+  # header dependency without changing PPTP tunnel or RADIUS authentication.
+  sed -i 's/^PLUGINS = pptpd-logwtmp\.so$/PLUGINS =/' "$source_dir/plugins/Makefile"
+  (
+    cd "$source_dir"
+    ./configure --prefix=/usr/local --sbindir=/usr/local/sbin
+    make --jobs="$(nproc)"
+    install -m 0755 ./pptpd /usr/local/sbin/pptpd
+  )
+  test -x /usr/local/sbin/pptpd || die "PPTP source build did not install /usr/local/sbin/pptpd"
+  cat > /etc/systemd/system/pptpd.service <<'EOF'
+[Unit]
+Description=PoPToP PPTP Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/pptpd --fg --conf /etc/pptpd.conf --pidfile /run/pptpd.pid
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload
+  log "PPTP server ${PPTPD_SOURCE_COMMIT:0:8} built from pinned source"
 }
 
 install_accel_ppp() {
@@ -480,7 +537,6 @@ nodefaultroute
 EOF
   cat > /etc/pptpd.conf <<'EOF'
 option /etc/ppp/pptpd-options
-logwtmp
 localip 192.168.32.1
 remoteip 192.168.32.10-245
 EOF
@@ -791,6 +847,7 @@ main() {
   check_system
   create_secrets
   install_packages
+  install_pptpd_server
   install_accel_ppp
   configure_mysql
   configure_redis
