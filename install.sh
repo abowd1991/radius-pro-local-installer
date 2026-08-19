@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.10}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.11}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -447,6 +447,7 @@ sql {
   postauth_table = "radpostauth"
   read_groups = yes
   group_attribute = "SQL-Group"
+  group_membership_query = "SELECT groupname FROM \${usergroup_table} WHERE username = '%{SQL-User-Name}' ORDER BY priority"
   \$INCLUDE ${RADIUS_DIR}/mods-config/sql/main/mysql/queries.conf
   pool {
     start = 5
