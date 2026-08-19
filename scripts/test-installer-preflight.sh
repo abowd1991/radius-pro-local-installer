@@ -62,5 +62,7 @@ grep -Fq 'RADIUS_PRO_RESET_MYSQL:-0' "$ROOT_DIR/install.sh"
 grep -Fq 'mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql' "$ROOT_DIR/install.sh"
 grep -Fq 'JWT_SECRET=${JWT_SECRET}' "$ROOT_DIR/install.sh"
 grep -Fq 'if [[ -z "${JWT_SECRET:-}" ]]; then' "$ROOT_DIR/install.sh"
+grep -Fq 'source "$INSTALL_DIR/.env"' "$ROOT_DIR/install.sh"
+grep -Fq 'database migrations did not create radius_pro.users' "$ROOT_DIR/install.sh"
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'

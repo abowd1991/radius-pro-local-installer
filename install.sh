@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.1}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.2}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -309,12 +309,15 @@ VPS_SSH_USER=root
 EOF
   chmod 600 "$INSTALL_DIR/.env"
   cd "$INSTALL_DIR"
-  pnpm install --frozen-lockfile
-  pnpm exec tsx scripts/run-migrations.ts
   set -a
   source "$INSTALL_DIR/.env"
   source "$CONFIG_DIR/installer.env"
   set +a
+  pnpm install --frozen-lockfile
+  pnpm exec tsx scripts/run-migrations.ts
+  MYSQL_PWD="$RADIUS_PRO_APP_DB_PASSWORD" mysql --protocol=socket -uradiuspro -Nse \
+    "SELECT 1 FROM information_schema.tables WHERE table_schema = 'radius_pro' AND table_name = 'users'" \
+    | grep -qx '1' || die "database migrations did not create radius_pro.users"
   node scripts/bootstrap-owner.mjs
   pnpm build
   cat > "$INSTALL_DIR/ecosystem.config.cjs" <<EOF
