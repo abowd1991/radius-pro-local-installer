@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.7}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.8}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -658,7 +658,7 @@ configure_application_and_proxy() {
   cd "$INSTALL_DIR"
   pm2 start ecosystem.config.cjs --only radius-pro
   pm2 save
-  env PATH="$PATH" pm2 startup systemd -u root --hp /root | tail -n 1 | bash
+  env PATH="$PATH" pm2 startup systemd -u root --hp /root >/dev/null
   cat > /etc/nginx/sites-available/radius-pro <<'EOF'
 server {
     listen 80 default_server;

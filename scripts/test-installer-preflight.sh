@@ -69,6 +69,8 @@ grep -Fq 'pool {' "$ROOT_DIR/install.sh"
 grep -Fq '${BASH_SOURCE[0]:-}' "$ROOT_DIR/install.sh"
 grep -Fq 'explicit clean-test reset requested' "$ROOT_DIR/install.sh"
 grep -Fq 'rm -rf "$INSTALL_DIR" "$CONFIG_DIR"' "$ROOT_DIR/install.sh"
+grep -Fq 'pm2 startup systemd -u root --hp /root >/dev/null' "$ROOT_DIR/install.sh"
+! grep -Fq 'pm2 startup systemd -u root --hp /root | tail -n 1 | bash' "$ROOT_DIR/install.sh"
 while IFS= read -r -d '' migration; do
   statements=$(grep -cE ';[[:space:]]*$' "$migration" || true)
   breakpoints=$(grep -c '^--> statement-breakpoint$' "$migration" || true)
