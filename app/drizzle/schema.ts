@@ -159,7 +159,8 @@ export type InsertPlan = typeof plans.$inferInsert;
 
 export const nasDevices = mysqlTable("nas", {
   id: int("id").autoincrement().primaryKey(),
-  nasname: varchar("nasname", { length: 128 }).notNull().unique(), // IP Address
+  // VPN NAS starts without an address and receives its IP after tunnel provisioning.
+  nasname: varchar("nasname", { length: 128 }).unique(), // IP Address after provisioning
   shortname: varchar("shortname", { length: 32 }),
   type: varchar("type", { length: 30 }).default("other"),
   ports: int("ports"),

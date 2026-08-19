@@ -115,5 +115,7 @@ if grep -RInE 'ADD[[:space:]]+COLUMN[[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXI
   exit 1
 fi
 grep -Fq "ALTER TABLE \`users\` ADD \`preferredCurrency\` enum('USD','ILS','JOD','SAR','AED','EGP','YER') DEFAULT 'USD' NOT NULL;" "$ROOT_DIR/app/drizzle/0112_repair_users_preferred_currency.sql"
+grep -Fq 'ALTER TABLE `nas` MODIFY COLUMN `nasname` varchar(128) NULL;' "$ROOT_DIR/app/drizzle/0113_repair_nas_pending_vpn.sql"
+grep -Fq 'ALTER TABLE `nas` ADD `mikrotikwinboxport` int DEFAULT 8291;' "$ROOT_DIR/app/drizzle/0113_repair_nas_pending_vpn.sql"
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'
