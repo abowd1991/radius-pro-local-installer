@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.2}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.3}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -102,7 +102,7 @@ create_secrets() {
   DOMAIN="${RADIUS_PRO_DOMAIN:-$PUBLIC_IP}"
   ADMIN_USERNAME="${RADIUS_PRO_ADMIN_USERNAME:-admin}"
   ADMIN_EMAIL="${RADIUS_PRO_ADMIN_EMAIL:-admin@${DOMAIN}}"
-  ADMIN_PASSWORD="${RADIUS_PRO_ADMIN_PASSWORD:-$(random_hex 16)}"
+  ADMIN_PASSWORD="${RADIUS_PRO_ADMIN_PASSWORD:-admin}"
   MYSQL_ROOT_PASSWORD="$(random_hex 32)"
   APP_DB_PASSWORD="$(random_hex 32)"
   RADIUS_DB_PASSWORD="$(random_hex 32)"
@@ -331,6 +331,9 @@ EOF
   MYSQL_PWD="$RADIUS_PRO_APP_DB_PASSWORD" mysql --protocol=socket -uradiuspro -Nse \
     "SELECT 1 FROM information_schema.tables WHERE table_schema = 'radius_pro' AND table_name = 'users'" \
     | grep -qx '1' || die "database migrations did not create radius_pro.users"
+  MYSQL_PWD="$RADIUS_PRO_APP_DB_PASSWORD" mysql --protocol=socket -uradiuspro -Nse \
+    "SELECT 1 FROM information_schema.columns WHERE table_schema = 'radius_pro' AND table_name = 'users' AND column_name = 'preferredCurrency'" \
+    | grep -qx '1' || die "database migrations did not create radius_pro.users.preferredCurrency"
   node scripts/bootstrap-owner.mjs
   pnpm build
   cat > "$INSTALL_DIR/ecosystem.config.cjs" <<EOF

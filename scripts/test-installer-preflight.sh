@@ -64,6 +64,8 @@ grep -Fq 'JWT_SECRET=${JWT_SECRET}' "$ROOT_DIR/install.sh"
 grep -Fq 'if [[ -z "${JWT_SECRET:-}" ]]; then' "$ROOT_DIR/install.sh"
 grep -Fq 'source "$INSTALL_DIR/.env"' "$ROOT_DIR/install.sh"
 grep -Fq 'database migrations did not create radius_pro.users' "$ROOT_DIR/install.sh"
+grep -Fq 'database migrations did not create radius_pro.users.preferredCurrency' "$ROOT_DIR/install.sh"
+grep -Fq 'ADMIN_PASSWORD="${RADIUS_PRO_ADMIN_PASSWORD:-admin}"' "$ROOT_DIR/install.sh"
 grep -Fq 'pool {' "$ROOT_DIR/install.sh"
 ! grep -Fq 'pool { start =' "$ROOT_DIR/install.sh"
 grep -Fq '${BASH_SOURCE[0]:-}' "$ROOT_DIR/install.sh"
@@ -92,5 +94,6 @@ if grep -RInE 'ADD[[:space:]]+COLUMN[[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXI
   printf 'MySQL-incompatible ADD COLUMN IF NOT EXISTS was found in migrations\n' >&2
   exit 1
 fi
+grep -Fq "ALTER TABLE \`users\` ADD \`preferredCurrency\` enum('USD','ILS','JOD','SAR','AED','EGP','YER') DEFAULT 'USD' NOT NULL;" "$ROOT_DIR/app/drizzle/0112_repair_users_preferred_currency.sql"
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'
