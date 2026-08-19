@@ -52,5 +52,7 @@ grep -Fq 'install -m 0644 "$nodesource_keyring" /etc/apt/keyrings/nodesource.gpg
 grep -Fq "grep -Fq 'deb.nodesource.com' \"\$source_file\"" "$ROOT_DIR/install.sh"
 grep -Fq 'rm -f /etc/apt/keyrings/nodesource.gpg' "$ROOT_DIR/install.sh"
 grep -Fq 'local pcre_package="libpcre2-dev"' "$ROOT_DIR/install.sh"
+grep -Fq 'local accel_pppd_bin="/usr/local/sbin/accel-pppd"' "$ROOT_DIR/install.sh"
+grep -Fq 'ExecStart=/usr/local/sbin/accel-pppd' "$ROOT_DIR/install.sh"
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'

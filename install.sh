@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.6}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.7}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -179,7 +179,8 @@ install_packages() {
 }
 
 install_accel_ppp() {
-  if /usr/sbin/accel-pppd -V 2>/dev/null | grep -q "${ACCEL_PPP_COMMIT:0:8}"; then
+  local accel_pppd_bin="/usr/local/sbin/accel-pppd"
+  if "$accel_pppd_bin" -V 2>/dev/null | grep -q "${ACCEL_PPP_COMMIT:0:8}"; then
     log "accel-ppp reference build already present"
     return
   fi
@@ -191,7 +192,7 @@ install_accel_ppp() {
     -DBUILD_DRIVER=FALSE -DCMAKE_BUILD_TYPE=Release -DRADIUS=FALSE -DNETSNMP=FALSE -DSHAPER=FALSE
   cmake --build "$source_dir/build" --parallel "$(nproc)"
   cmake --install "$source_dir/build"
-  /usr/sbin/accel-pppd -V | grep -q "${ACCEL_PPP_COMMIT:0:8}" || die "accel-ppp build verification failed"
+  "$accel_pppd_bin" -V | grep -q "${ACCEL_PPP_COMMIT:0:8}" || die "accel-ppp build verification failed"
   log "accel-ppp ${ACCEL_PPP_COMMIT:0:8} installed"
 }
 
@@ -520,7 +521,7 @@ After=network-online.target
 Wants=network-online.target
 [Service]
 Type=simple
-ExecStart=/usr/sbin/accel-pppd -c /etc/accel-ppp.conf -p /run/accel-ppp.pid -d
+ExecStart=/usr/local/sbin/accel-pppd -c /etc/accel-ppp.conf -p /run/accel-ppp.pid -d
 Restart=always
 RestartSec=5
 [Install]
