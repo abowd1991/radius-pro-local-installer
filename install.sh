@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.8}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.9}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -711,7 +711,7 @@ configure_firewall_and_maintenance() {
   ufw allow 4500/udp comment "IPsec NAT-T"
   ufw allow 1701/udp comment "L2TP"
   ufw allow 1723/tcp comment "PPTP"
-  ufw allow proto gre comment "PPTP GRE"
+  ufw allow in proto gre from any to any comment "PPTP GRE"
   ufw allow 8443/tcp comment "SSTP"
   ufw --force enable
   cat > /usr/local/bin/radius-pro-backup <<'EOF'
