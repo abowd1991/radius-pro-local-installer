@@ -1,5 +1,5 @@
 ALTER TABLE permission_plans
-  ADD COLUMN IF NOT EXISTS allowedMenuItems JSON NULL;
+  ADD COLUMN allowedMenuItems JSON NULL;
 
 --> statement-breakpoint
 

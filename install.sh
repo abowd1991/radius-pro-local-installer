@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.4}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.5}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"

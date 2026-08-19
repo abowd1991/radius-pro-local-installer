@@ -72,5 +72,9 @@ while IFS= read -r -d '' migration; do
     exit 1
   fi
 done < <(find "$ROOT_DIR/app/drizzle" -maxdepth 1 -type f -name '*.sql' -print0)
+if grep -RInE 'ADD[[:space:]]+COLUMN[[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS' "$ROOT_DIR/app/drizzle"/*.sql; then
+  printf 'MySQL-incompatible ADD COLUMN IF NOT EXISTS was found in migrations\n' >&2
+  exit 1
+fi
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'
