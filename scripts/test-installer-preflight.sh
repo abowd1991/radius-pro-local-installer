@@ -60,5 +60,7 @@ grep -Fq 'reusing installer secrets from interrupted installation' "$ROOT_DIR/in
 grep -Fq 'mysql --protocol=socket -uroot "-p${MYSQL_ROOT_PASSWORD}" -e' "$ROOT_DIR/install.sh"
 grep -Fq 'RADIUS_PRO_RESET_MYSQL:-0' "$ROOT_DIR/install.sh"
 grep -Fq 'mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql' "$ROOT_DIR/install.sh"
+grep -Fq 'JWT_SECRET=${JWT_SECRET}' "$ROOT_DIR/install.sh"
+grep -Fq 'if [[ -z "${JWT_SECRET:-}" ]]; then' "$ROOT_DIR/install.sh"
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'

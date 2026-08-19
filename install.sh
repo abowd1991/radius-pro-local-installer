@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.0}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.1}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -76,6 +76,11 @@ create_secrets() {
     # Reuse the original credentials when resuming an interrupted fresh install.
     # This is necessary because a previous run may already have changed MySQL root authentication.
     source "$CONFIG_DIR/installer.env"
+    if [[ -z "${JWT_SECRET:-}" ]]; then
+      JWT_SECRET="$(random_hex 48)"
+      printf 'JWT_SECRET=%s\n' "$JWT_SECRET" >> "$CONFIG_DIR/installer.env"
+      chmod 600 "$CONFIG_DIR/installer.env"
+    fi
     log "reusing installer secrets from interrupted installation"
     return
   fi
@@ -105,6 +110,7 @@ MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
 RADIUS_PRO_APP_DB_PASSWORD=${APP_DB_PASSWORD}
 RADIUS_PRO_RADIUS_DB_PASSWORD=${RADIUS_DB_PASSWORD}
 RADIUS_PRO_REDIS_PASSWORD=${REDIS_PASSWORD}
+JWT_SECRET=${JWT_SECRET}
 RADIUS_PRO_LOCAL_RADIUS_SECRET=${LOCAL_RADIUS_SECRET}
 RADIUS_PRO_VPN_PSK=${VPN_IPSEC_PSK}
 RADIUS_PRO_VPN_API_KEY=${VPN_API_KEY}
