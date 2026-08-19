@@ -64,6 +64,8 @@ grep -Fq 'JWT_SECRET=${JWT_SECRET}' "$ROOT_DIR/install.sh"
 grep -Fq 'if [[ -z "${JWT_SECRET:-}" ]]; then' "$ROOT_DIR/install.sh"
 grep -Fq 'source "$INSTALL_DIR/.env"' "$ROOT_DIR/install.sh"
 grep -Fq 'database migrations did not create radius_pro.users' "$ROOT_DIR/install.sh"
+grep -Fq 'pool {' "$ROOT_DIR/install.sh"
+! grep -Fq 'pool { start =' "$ROOT_DIR/install.sh"
 while IFS= read -r -d '' migration; do
   statements=$(grep -cE ';[[:space:]]*$' "$migration" || true)
   breakpoints=$(grep -c '^--> statement-breakpoint$' "$migration" || true)

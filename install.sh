@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.5}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.6}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -367,7 +367,15 @@ sql {
   acct_table1 = "radacct"
   acct_table2 = "radacct"
   postauth_table = "radpostauth"
-  pool { start = 5 min = 3 max = 32 spare = 3 uses = 0 lifetime = 0 idle_timeout = 60 }
+  pool {
+    start = 5
+    min = 3
+    max = 32
+    spare = 3
+    uses = 0
+    lifetime = 0
+    idle_timeout = 60
+  }
 }
 EOF
   install -m 0640 "${INSTALLER_SOURCE_DIR}/templates/freeradius/default" "$RADIUS_DIR/sites-available/default"
