@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Radius Pro Local V2 — Official Production Installer
-# Fresh Ubuntu 22.04 LTS installations only.
+# Fresh supported Ubuntu LTS installations only.
 set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.0}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -16,6 +17,7 @@ readonly BACKUP_DIR="/var/backups/radius-pro"
 readonly RADIUS_DIR="/etc/freeradius/3.0"
 readonly INSTALL_LOG="/var/log/radius-pro-install.log"
 readonly ACCEL_PPP_COMMIT="b8f6eafe61ffcf6645a51cc2bc13c93cab4955fe"
+readonly NODESOURCE_KEY_FINGERPRINT="6F71F525282841EEDAF851B42F59B5F99B1BE0B4"
 
 log() { printf '[radius-pro] %s\n' "$*" | tee -a "$INSTALL_LOG"; }
 die() { printf '[radius-pro] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -32,7 +34,7 @@ bootstrap_from_remote() {
     apt-get install -y -qq git ca-certificates
   fi
   rm -rf "$INSTALLER_WORKDIR"
-  git clone --depth 1 "$INSTALLER_REPOSITORY" "$INSTALLER_WORKDIR"
+  git clone --depth 1 --branch "$INSTALLER_REF" "$INSTALLER_REPOSITORY" "$INSTALLER_WORKDIR"
   exec bash "$INSTALLER_WORKDIR/install.sh" "$@"
 }
 
@@ -50,16 +52,23 @@ trap 'on_error $LINENO' ERR
 
 check_system() {
   require_root
-  [[ -r /etc/os-release ]] || die "Ubuntu 22.04 LTS is required"
-  . /etc/os-release
-  [[ "$ID" == "ubuntu" && "$VERSION_ID" == "22.04" ]] || die "Ubuntu 22.04 LTS is required; found ${PRETTY_NAME:-unknown}"
+  local os_release_file="${RADIUS_PRO_OS_RELEASE_FILE:-/etc/os-release}"
+  [[ -r "$os_release_file" ]] || die "Ubuntu LTS is required; unable to read ${os_release_file}"
+  # shellcheck disable=SC1090
+  . "$os_release_file"
+  [[ "$ID" == "ubuntu" ]] || die "Ubuntu Server LTS is required; found ${PRETTY_NAME:-unknown}"
+  case "$VERSION_ID" in
+    20.04|22.04|24.04|26.04) ;;
+    *) die "supported releases are Ubuntu 20.04, 22.04, 24.04 and 26.04 LTS; found ${PRETTY_NAME:-unknown}" ;;
+  esac
+  [[ "$(dpkg --print-architecture)" == "amd64" ]] || die "only Ubuntu amd64 is currently supported"
   (( $(free -m | awk '/^Mem:/{print $2}') >= 1024 )) || die "at least 1 GiB RAM is required"
   (( $(df -Pm / | awk 'NR==2 {print $4}') >= 10240 )) || die "at least 10 GiB free disk is required"
   [[ ! -e "$INSTALL_DIR/.release-manifest" ]] || die "an existing Radius Pro release was found; this installer is fresh-install only"
   mkdir -p "$LOG_DIR" "$BACKUP_DIR" "$CONFIG_DIR"
   touch "$INSTALL_LOG"
   chmod 600 "$INSTALL_LOG"
-  log "system checks passed for Radius Pro ${RELEASE_VERSION}"
+  log "system checks passed for Ubuntu ${VERSION_ID} LTS / Radius Pro ${RELEASE_VERSION}"
 }
 
 create_secrets() {
@@ -100,10 +109,28 @@ EOF
 install_packages() {
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
+  apt-get install -y -qq software-properties-common
+  if command -v add-apt-repository >/dev/null 2>&1; then
+    add-apt-repository -y universe >/dev/null 2>&1 || true
+  fi
+  apt-get update -qq
+
+  local pcre_package="libpcre3-dev"
+  if ! apt-cache show "$pcre_package" >/dev/null 2>&1; then
+    pcre_package="libpcre2-dev"
+  fi
+  apt-cache show "$pcre_package" >/dev/null 2>&1 || die "no supported PCRE development package is available"
+
+  local mysql_dev_package="libmysqlclient-dev"
+  if ! apt-cache show "$mysql_dev_package" >/dev/null 2>&1; then
+    mysql_dev_package="default-libmysqlclient-dev"
+  fi
+  apt-cache show "$mysql_dev_package" >/dev/null 2>&1 || die "no MySQL client development package is available"
+
   apt-get install -y -qq \
     ca-certificates curl git gnupg lsb-release unzip zip jq \
-    build-essential cmake pkg-config linux-headers-"$(uname -r)" \
-    libpcre3-dev libssl-dev liblua5.3-dev libpq-dev libmysqlclient-dev \
+    build-essential cmake pkg-config \
+    "$pcre_package" libssl-dev liblua5.3-dev libpq-dev "$mysql_dev_package" \
     libgnutls28-dev libreadline-dev libcap-dev libmnl-dev libnet-snmp-dev \
     mysql-server redis-server nginx ufw fail2ban cron logrotate \
     freeradius freeradius-mysql freeradius-utils \
@@ -111,8 +138,24 @@ install_packages() {
     python3 python3-pip python3-venv python3-pymysql python3-mysql.connector python3-flask \
     openssl net-tools iptables
 
+  if apt-cache show "linux-headers-$(uname -r)" >/dev/null 2>&1; then
+    apt-get install -y -qq "linux-headers-$(uname -r)"
+  else
+    log "kernel headers for $(uname -r) are unavailable; continuing because accel-ppp is built without a kernel driver"
+  fi
+
   if ! command -v node >/dev/null 2>&1 || [[ "$(node -v)" != v22.* ]]; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+    install -d -m 0755 /etc/apt/keyrings
+    local nodesource_key="/tmp/nodesource-node22.gpg.key"
+    curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
+      https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o "$nodesource_key"
+    local actual_fingerprint
+    actual_fingerprint="$(gpg --show-keys --with-colons "$nodesource_key" | awk -F: '$1 == "fpr" {print toupper($10); exit}')"
+    [[ "$actual_fingerprint" == "$NODESOURCE_KEY_FINGERPRINT" ]] || die "NodeSource signing key fingerprint verification failed"
+    gpg --dearmor --yes --output /etc/apt/keyrings/nodesource.gpg "$nodesource_key"
+    rm -f "$nodesource_key"
+    printf '%s\n' 'deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main' > /etc/apt/sources.list.d/nodesource.list
+    apt-get update -qq
     apt-get install -y -qq nodejs
   fi
   command -v pnpm >/dev/null 2>&1 || npm install --global pnpm@10
