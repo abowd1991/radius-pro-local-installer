@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.2}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.3}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -127,11 +127,20 @@ install_packages() {
   fi
   apt-cache show "$mysql_dev_package" >/dev/null 2>&1 || die "no MySQL client development package is available"
 
+  local snmp_dev_package=""
+  for candidate in libsnmp-dev libnet-snmp-dev; do
+    if apt-cache show "$candidate" >/dev/null 2>&1; then
+      snmp_dev_package="$candidate"
+      break
+    fi
+  done
+  [[ -n "$snmp_dev_package" ]] || die "no supported Net-SNMP development package is available"
+
   apt-get install -y -qq \
     ca-certificates curl git gnupg lsb-release unzip zip jq \
     build-essential cmake pkg-config \
     "$pcre_package" libssl-dev liblua5.3-dev libpq-dev "$mysql_dev_package" \
-    libgnutls28-dev libreadline-dev libcap-dev libmnl-dev libnet-snmp-dev \
+    libgnutls28-dev libreadline-dev libcap-dev libmnl-dev "$snmp_dev_package" \
     mysql-server redis-server nginx ufw fail2ban cron logrotate \
     freeradius freeradius-mysql freeradius-utils \
     strongswan strongswan-starter strongswan-pki libcharon-extra-plugins xl2tpd ppp pptpd \
