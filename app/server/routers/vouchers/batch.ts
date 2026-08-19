@@ -6,6 +6,7 @@ import * as walletDb from "../../db/wallet";
 import * as planDb from "../../db/plans";
 import * as nasDb from "../../db/nas";
 import * as cardDb from "../../db/vouchers";
+import { recycleBinService } from "../../domains/recycleBin/RecycleBinService";
 import * as invoiceDb from "../../db/invoices";
 import * as subscriptionDb from "../../db/subscriptions";
 import * as notificationDb from "../../db/notifications";
@@ -247,14 +248,27 @@ export const deleteBatch = protectedProcedure
       deleteCards: z.boolean().default(false),
     }))
     .mutation(async ({ ctx, input }) => {
+      const batch = await cardDb.getBatchById(input.batchId);
+      if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "الدفعة غير موجودة" });
       // Check ownership for non-super_admin
       if (!isAdmin(ctx.user.role)) {
-        const batch = await cardDb.getBatchById(input.batchId);
-        if (!batch || (batch.createdBy !== ctx.user.id && batch.resellerId !== ctx.user.id)) {
+        if (batch.createdBy !== ctx.user.id && batch.resellerId !== ctx.user.id) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
         }
       }
-      return cardDb.deleteBatch(input.batchId, input.deleteCards);
+      if (input.deleteCards) {
+        const cards = await cardDb.getCardsByBatch(input.batchId);
+        await Promise.allSettled(cards.map(async (card: { username: string }) => {
+          await coaService.disconnectUserAllSessions(card.username);
+          await vpnApi.disconnectVpnSession(card.username);
+        }));
+      }
+      return recycleBinService.archiveBatch(input.batchId, input.deleteCards, {
+        userId: ctx.user.id,
+        role: ctx.user.role,
+        ownerId: batch.createdBy,
+        resellerId: batch.resellerId,
+      });
     });
 
 export const bulkDeleteBatches = protectedProcedure
@@ -273,7 +287,21 @@ export const bulkDeleteBatches = protectedProcedure
       }
       let deleted = 0;
       for (const batchId of input.batchIds) {
-        await cardDb.deleteBatch(batchId, input.deleteCards);
+        const batch = await cardDb.getBatchById(batchId);
+        if (!batch) continue;
+        if (input.deleteCards) {
+          const cards = await cardDb.getCardsByBatch(batchId);
+          await Promise.allSettled(cards.map(async (card: { username: string }) => {
+            await coaService.disconnectUserAllSessions(card.username);
+            await vpnApi.disconnectVpnSession(card.username);
+          }));
+        }
+        await recycleBinService.archiveBatch(batchId, input.deleteCards, {
+          userId: ctx.user.id,
+          role: ctx.user.role,
+          ownerId: batch.createdBy,
+          resellerId: batch.resellerId,
+        });
         deleted++;
       }
       return { deleted };
@@ -496,7 +524,8 @@ export const generateBatchPDFWithTemplate = resellerProcedure
       const batch = await cardDb.getBatchById(input.batchId);
       if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "Batch not found" });
       // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && batch.createdBy !== ctx.user.id && batch.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (!isAdmin(ctx.user.role) && batch.createdBy !== effectiveOwnerId && batch.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
 
@@ -643,8 +672,14 @@ export const deleteCard = protectedProcedure
       if (!isAdmin(ctx.user.role) && card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
-      // V2: VoucherRepository.deleteCard (Transaction: radcheck+radreply+radusergroup+online_sessions+radius_cards)
-      return voucherRepository.deleteCard(input.cardId);
+      await coaService.disconnectUserAllSessions(card.username).catch(() => undefined);
+      await vpnApi.disconnectVpnSession(card.username).catch(() => undefined);
+      return recycleBinService.archiveCard(input.cardId, {
+        userId: ctx.user.id,
+        role: ctx.user.role,
+        ownerId: card.createdBy,
+        resellerId: card.resellerId,
+      });
     });
 
   // Get radacct activity (first login + last seen) for a batch of usernames
@@ -666,10 +701,18 @@ export const bulkDelete = protectedProcedure
         if (unauthorized) throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
       
-      // The repository closes each immutable lifecycle and removes only current
-      // credentials. It deliberately preserves radacct and old online session evidence.
-      for (const card of cards as Array<{ id: number }>) {
-        await voucherRepository.deleteCard(card.id);
+      for (const card of cards as Array<{ id: number; createdBy: number; resellerId: number | null }>) {
+        const cardWithUsername = await db.select({ username: radiusCards.username }).from(radiusCards).where(eq(radiusCards.id, card.id)).limit(1);
+        if (cardWithUsername[0]?.username) {
+          await coaService.disconnectUserAllSessions(cardWithUsername[0].username).catch(() => undefined);
+          await vpnApi.disconnectVpnSession(cardWithUsername[0].username).catch(() => undefined);
+        }
+        await recycleBinService.archiveCard(card.id, {
+          userId: ctx.user.id,
+          role: ctx.user.role,
+          ownerId: card.createdBy,
+          resellerId: card.resellerId,
+        });
       }
       
       return { success: true, count: cards.length };

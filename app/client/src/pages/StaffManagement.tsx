@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { parseDbDate } from '@/lib/dateFormat';
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { UserPlus, Pencil, Trash2, Users, Search, Download, ArrowUpDown } from "lucide-react";
+import { UserPlus, Pencil, Trash2, Users, Search, Download, ArrowUpDown, ShieldCheck, Copy, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 
 /**
@@ -27,7 +27,14 @@ import { toast } from "sonner";
 export default function StaffManagement() {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isPermissionDialogOpen, setIsPermissionDialogOpen] = useState(false);
+  const [isCredentialsDialogOpen, setIsCredentialsDialogOpen] = useState(false);
   const [selectedStaff, setSelectedStaff] = useState<any>(null);
+  const [permissionStaff, setPermissionStaff] = useState<any>(null);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<number[]>([]);
+  const [selectedMenuItems, setSelectedMenuItems] = useState<string[]>([]);
+  const [createdCredentials, setCreatedCredentials] = useState<{ username: string; password: string } | null>(null);
+  const [editPassword, setEditPassword] = useState("");
   
   // Filters and search
   const [roleFilter, setRoleFilter] = useState<string>("all");
@@ -37,19 +44,42 @@ export default function StaffManagement() {
 
   const [newStaff, setNewStaff] = useState({
     name: "",
+    username: "",
     email: "",
     password: "",
-    role: "client_admin" as "client_admin" | "client_staff",
+    role: "client_staff" as const,
   });
 
   const utils = trpc.useUtils();
   const { data: subAdmins, isLoading } = trpc.subAdmin.listMySubAdmins.useQuery();
-  const createMutation = trpc.subAdmin.createSubAdmin.useMutation({
+  const { data: clientScope } = trpc.staffPermissions.getClientScope.useQuery();
+  const staffPermissionsQuery = trpc.staffPermissions.get.useQuery(
+    { staffId: permissionStaff?.id ?? 0 },
+    { enabled: Boolean(permissionStaff?.id && isPermissionDialogOpen) },
+  );
+  const setStaffPermissionsMutation = trpc.staffPermissions.set.useMutation({
     onSuccess: () => {
+      toast.success("تم حفظ صلاحيات الموظف");
+      utils.staffPermissions.get.invalidate({ staffId: permissionStaff?.id ?? 0 });
+      setIsPermissionDialogOpen(false);
+      setPermissionStaff(null);
+    },
+    onError: (error) => toast.error(error.message || "فشل حفظ الصلاحيات"),
+  });
+
+  useEffect(() => {
+    if (!staffPermissionsQuery.data) return;
+    setSelectedGroupIds(staffPermissionsQuery.data.groups.map((group: any) => group.id));
+    setSelectedMenuItems(staffPermissionsQuery.data.allowedMenuItems);
+  }, [staffPermissionsQuery.data]);
+  const createMutation = trpc.subAdmin.createSubAdmin.useMutation({
+    onSuccess: (createdStaff, variables) => {
       toast.success("تم إنشاء الموظف بنجاح");
       utils.subAdmin.listMySubAdmins.invalidate();
       setIsCreateDialogOpen(false);
-      setNewStaff({ name: "", email: "", password: "", role: "client_admin" });
+      setCreatedCredentials({ username: createdStaff.username, password: variables.password });
+      setIsCredentialsDialogOpen(true);
+      setNewStaff({ name: "", username: "", email: "", password: "", role: "client_staff" });
     },
     onError: (error) => {
       toast.error(error.message || "فشل إنشاء الموظف");
@@ -79,7 +109,7 @@ export default function StaffManagement() {
   });
 
   const handleCreate = () => {
-    if (!newStaff.name || !newStaff.email || !newStaff.password) {
+    if (!newStaff.name || !newStaff.username || !newStaff.email || !newStaff.password) {
       toast.error("يرجى ملء جميع الحقول");
       return;
     }
@@ -91,7 +121,9 @@ export default function StaffManagement() {
     updateMutation.mutate({
       id: selectedStaff.id,
       name: selectedStaff.name,
+      username: selectedStaff.username,
       email: selectedStaff.email,
+      password: editPassword || undefined,
       role: selectedStaff.role,
       status: selectedStaff.status,
     });
@@ -119,7 +151,8 @@ export default function StaffManagement() {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter((staff: any) => 
         staff.name.toLowerCase().includes(query) || 
-        staff.email.toLowerCase().includes(query)
+        staff.email.toLowerCase().includes(query) ||
+        String(staff.username || "").toLowerCase().includes(query)
       );
     }
 
@@ -154,9 +187,10 @@ export default function StaffManagement() {
       return;
     }
 
-    const headers = ["الاسم", "البريد الإلكتروني", "الدور", "الحالة", "تاريخ الإنشاء"];
+    const headers = ["الاسم", "اسم المستخدم", "البريد الإلكتروني", "الدور", "الحالة", "تاريخ الإنشاء"];
     const rows = filteredAndSortedStaff.map((staff: any) => [
       staff.name,
+      staff.username || "",
       staff.email,
       staff.role === "client_admin" ? "مدير" : staff.role === "client_staff" ? "موظف" : staff.role,
       staff.status === "active" ? "نشط" : staff.status,
@@ -215,7 +249,7 @@ export default function StaffManagement() {
                   <DialogHeader>
                     <DialogTitle>إضافة موظف جديد</DialogTitle>
                     <DialogDescription>
-                      أنشئ حساب موظف جديد يمكنه الوصول إلى بياناتك
+                      أنشئ حساب دخول محلي باسم مستخدم وكلمة مرور، ثم خصص له ما يمكنه رؤيته.
                     </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
@@ -229,6 +263,17 @@ export default function StaffManagement() {
                       />
                     </div>
                     <div>
+                      <Label htmlFor="username">اسم المستخدم للدخول</Label>
+                      <Input
+                        id="username"
+                        value={newStaff.username}
+                        onChange={(e) => setNewStaff({ ...newStaff, username: e.target.value.trim() })}
+                        placeholder="مثال: sales_ahmad"
+                        autoComplete="username"
+                      />
+                      <p className="mt-1 text-xs text-muted-foreground">يستخدمه الموظف في صفحة تسجيل الدخول، ويجب أن يكون فريداً.</p>
+                    </div>
+                    <div>
                       <Label htmlFor="email">البريد الإلكتروني</Label>
                       <Input
                         id="email"
@@ -239,13 +284,14 @@ export default function StaffManagement() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="password">كلمة المرور</Label>
+                      <Label htmlFor="password">كلمة المرور المحلية</Label>
                       <Input
                         id="password"
                         type="password"
                         value={newStaff.password}
                         onChange={(e) => setNewStaff({ ...newStaff, password: e.target.value })}
-                        placeholder="••••••••"
+                        placeholder="6 أحرف على الأقل"
+                        autoComplete="new-password"
                       />
                     </div>
                     <div>
@@ -257,10 +303,7 @@ export default function StaffManagement() {
                         <SelectTrigger>
                           <SelectValue />
                         </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="client_admin">مدير</SelectItem>
-                          <SelectItem value="client_staff">موظف</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="client_staff">موظف مبيعات</SelectItem></SelectContent>
                       </Select>
                     </div>
                     <Button onClick={handleCreate} disabled={createMutation.isPending} className="w-full">
@@ -278,7 +321,7 @@ export default function StaffManagement() {
             <div className="flex-1 relative">
               <Search className="absolute right-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="بحث بالاسم أو البريد الإلكتروني..."
+                placeholder="بحث بالاسم أو اسم المستخدم أو البريد الإلكتروني..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="pr-10"
@@ -290,9 +333,7 @@ export default function StaffManagement() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">جميع الأدوار</SelectItem>
-                <SelectItem value="client_owner">مالك</SelectItem>
-                <SelectItem value="client_admin">مدير</SelectItem>
-                <SelectItem value="client_staff">موظف</SelectItem>
+                <SelectItem value="client_staff">موظف مبيعات</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -325,6 +366,7 @@ export default function StaffManagement() {
                         <ArrowUpDown className="w-3 h-3" />
                       </Button>
                     </TableHead>
+                    <TableHead>اسم المستخدم</TableHead>
                     <TableHead>
                       <Button variant="ghost" size="sm" onClick={() => toggleSort("email")} className="flex items-center gap-1">
                         البريد الإلكتروني
@@ -351,11 +393,10 @@ export default function StaffManagement() {
                   {filteredAndSortedStaff.map((staff: any) => (
                     <TableRow key={staff.id}>
                       <TableCell>{staff.name}</TableCell>
+                      <TableCell dir="ltr">{staff.username || "—"}</TableCell>
                       <TableCell>{staff.email}</TableCell>
                       <TableCell>
-                        <Badge variant={staff.role === "client_admin" ? "default" : "secondary"}>
-                          {staff.role === "client_admin" ? "مدير" : staff.role === "client_staff" ? "موظف" : staff.role}
-                        </Badge>
+                        <Badge variant="secondary">موظف مبيعات</Badge>
                       </TableCell>
                       <TableCell>
                         <Badge variant={staff.status === "active" ? "default" : "destructive"}>
@@ -370,10 +411,24 @@ export default function StaffManagement() {
                             size="sm"
                             onClick={() => {
                               setSelectedStaff(staff);
+                              setEditPassword("");
                               setIsEditDialogOpen(true);
                             }}
                           >
                             <Pencil className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            title="ضبط الصلاحيات"
+                            onClick={() => {
+                              setPermissionStaff(staff);
+                              setSelectedGroupIds([]);
+                              setSelectedMenuItems([]);
+                              setIsPermissionDialogOpen(true);
+                            }}
+                          >
+                            <ShieldCheck className="w-4 h-4" />
                           </Button>
                           <Button
                             variant="ghost"
@@ -412,6 +467,15 @@ export default function StaffManagement() {
                 />
               </div>
               <div>
+                <Label htmlFor="edit-username">اسم المستخدم للدخول</Label>
+                <Input
+                  id="edit-username"
+                  value={selectedStaff.username || ""}
+                  onChange={(e) => setSelectedStaff({ ...selectedStaff, username: e.target.value.trim() })}
+                  autoComplete="username"
+                />
+              </div>
+              <div>
                 <Label htmlFor="edit-email">البريد الإلكتروني</Label>
                 <Input
                   id="edit-email"
@@ -419,6 +483,18 @@ export default function StaffManagement() {
                   value={selectedStaff.email}
                   onChange={(e) => setSelectedStaff({ ...selectedStaff, email: e.target.value })}
                 />
+              </div>
+              <div>
+                <Label htmlFor="edit-password">تعيين كلمة مرور جديدة</Label>
+                <Input
+                  id="edit-password"
+                  type="password"
+                  value={editPassword}
+                  onChange={(e) => setEditPassword(e.target.value)}
+                  placeholder="اتركها فارغة للإبقاء على كلمة المرور الحالية"
+                  autoComplete="new-password"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">للحسابات التي أنشئت سابقاً، أدخل كلمة مرور هنا لتحويلها إلى دخول محلي.</p>
               </div>
               <div>
                 <Label htmlFor="edit-role">الدور</Label>
@@ -429,10 +505,7 @@ export default function StaffManagement() {
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="client_admin">مدير</SelectItem>
-                    <SelectItem value="client_staff">موظف</SelectItem>
-                  </SelectContent>
+                  <SelectContent><SelectItem value="client_staff">موظف مبيعات</SelectItem></SelectContent>
                 </Select>
               </div>
               <div>
@@ -455,6 +528,80 @@ export default function StaffManagement() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCredentialsDialogOpen} onOpenChange={setIsCredentialsDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><KeyRound className="h-5 w-5" />بيانات دخول الموظف</DialogTitle>
+            <DialogDescription>احتفظ بهذه البيانات وأرسلها للموظف. لا تُعرض كلمة المرور مرة أخرى من النظام.</DialogDescription>
+          </DialogHeader>
+          {createdCredentials && (
+            <div className="space-y-3 rounded-lg border bg-muted/40 p-4" dir="rtl">
+              <div><span className="text-sm text-muted-foreground">اسم المستخدم</span><p className="font-mono font-semibold" dir="ltr">{createdCredentials.username}</p></div>
+              <div><span className="text-sm text-muted-foreground">كلمة المرور</span><p className="font-mono font-semibold" dir="ltr">{createdCredentials.password}</p></div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  void navigator.clipboard.writeText(`اسم المستخدم: ${createdCredentials.username}\nكلمة المرور: ${createdCredentials.password}`);
+                  toast.success("تم نسخ بيانات الدخول");
+                }}
+              ><Copy className="ml-2 h-4 w-4" />نسخ بيانات الدخول</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isPermissionDialogOpen} onOpenChange={setIsPermissionDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>صلاحيات {permissionStaff?.name || "الموظف"}</DialogTitle>
+            <DialogDescription>
+              لا يمكنك منح الموظف إلا صلاحيات وصفحات مسموحة لحسابك من مالك النظام.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-6">
+            <div className="space-y-3">
+              <Label>مجموعات الصلاحيات</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(clientScope?.groups || []).map((group: any) => (
+                  <label key={group.id} className="flex items-start gap-2 rounded-md border p-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedGroupIds.includes(group.id)}
+                      onChange={(event) => setSelectedGroupIds((current) => event.target.checked ? [...current, group.id] : current.filter((id) => id !== group.id))}
+                    />
+                    <span className="text-sm"><strong>{group.nameAr}</strong><br /><span className="text-muted-foreground">{group.descriptionAr || group.name}</span></span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <Label>الصفحات التي تظهر في القائمة</Label>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {(clientScope?.allowedMenuItems || []).map((path: string) => (
+                  <label key={path} className="flex items-center gap-2 rounded-md border p-3 cursor-pointer text-sm" dir="ltr">
+                    <input
+                      type="checkbox"
+                      checked={selectedMenuItems.includes(path)}
+                      onChange={(event) => setSelectedMenuItems((current) => event.target.checked ? [...current, path] : current.filter((item) => item !== path))}
+                    />
+                    <span>{path}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <Button
+              className="w-full"
+              disabled={!permissionStaff || setStaffPermissionsMutation.isPending}
+              onClick={() => permissionStaff && setStaffPermissionsMutation.mutate({ staffId: permissionStaff.id, groupIds: selectedGroupIds, allowedMenuItems: selectedMenuItems })}
+            >
+              {setStaffPermissionsMutation.isPending ? "جاري الحفظ..." : "حفظ صلاحيات الموظف"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

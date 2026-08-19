@@ -54,10 +54,11 @@ export const list = protectedProcedure
     .query(async ({ ctx, input }) => {
       // Super admin sees all cards
       // V2: VoucherRepository.findAll — يستبدل cardDb.getAllCards + cardDb.getCardsByReseller
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       return voucherRepository.findAll(
         isAdmin(ctx.user.role)
           ? input
-          : { ...input, ownerId: ctx.user.id }
+          : { ...input, ownerId: effectiveOwnerId }
       );
     });
 
@@ -69,7 +70,8 @@ export const getById = protectedProcedure
       const card = await voucherRepository.findByIdWithPlan(input.id);
       if (!card) throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
       // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (!isAdmin(ctx.user.role) && card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return card;
@@ -84,7 +86,7 @@ export const getBatches = resellerProcedure.query(async ({ ctx }) => {
     if (isAdmin(ctx.user.role)) {
       return cardDb.getAllBatchesWithStats();
     }
-    return cardDb.getBatchesByResellerWithStats(ctx.user.id);
+    return cardDb.getBatchesByTenantWithStats(getTenantContext(ctx.user));
   });
 
   // Get batch with statistics - check ownership
@@ -94,7 +96,8 @@ export const getBatchWithStats = resellerProcedure
       const batch = await cardDb.getBatchWithStats(input.batchId);
       if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "Batch not found" });
       // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && batch.createdBy !== ctx.user.id && batch.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (!isAdmin(ctx.user.role) && batch.createdBy !== effectiveOwnerId && batch.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return batch;
@@ -106,7 +109,8 @@ export const getCardsByBatch = resellerProcedure
     .query(async ({ ctx, input }) => {
       // Check ownership for non-super_admin
       const batch = await cardDb.getBatchById(input.batchId);
-      if (batch && !isAdmin(ctx.user.role) && batch.createdBy !== ctx.user.id && batch.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (batch && !isAdmin(ctx.user.role) && batch.createdBy !== effectiveOwnerId && batch.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return cardDb.getCardsByBatch(input.batchId);
@@ -124,7 +128,7 @@ export const getStats = protectedProcedure
       if (isAdmin(ctx.user.role)) {
         return voucherRepository.getEffectiveCardStats();
       }
-      return voucherRepository.getEffectiveCardStats(ctx.user.id);
+      return voucherRepository.getEffectiveCardStats(getEffectiveOwnerId(getTenantContext(ctx.user)));
     });
 
 export const getNamespaceCapacity = resellerProcedure
@@ -180,7 +184,7 @@ export const getManualCards = protectedProcedure
       // Access control
       if (!isAdmin(ctx.user.role)) {
         // Client sees only their own manual cards
-        conditions.push(eq(radiusCards.createdBy, ctx.user.id));
+        conditions.push(eq(radiusCards.createdBy, getEffectiveOwnerId(getTenantContext(ctx.user))));
       } else if (input?.clientId) {
         // Admin with client filter
         conditions.push(eq(radiusCards.createdBy, input.clientId));

@@ -19,7 +19,7 @@ export function isDailyBillingDue(lastBilledAt: Date | string | null, timezone: 
  * SaaS Daily Billing Service
  * 
  * Billing Model:
- * - $0.50/day per active NAS ($15/month ÷ 30 days)
+ * - NAS الأول: 15$ شهرياً، وكل NAS إضافي: 5$ شهرياً، مع احتساب يومي
  * - Billing starts from 1st of month
  * - Daily deduction when NAS is active
  * - Set billing_status = 'past_due' if insufficient balance
@@ -53,7 +53,15 @@ export async function getAdditionalNasDailyRate(): Promise<number> {
     .from(systemSettings)
     .where(eq(systemSettings.key, "nas_additional_daily_rate"));
 
-  return setting ? parseFloat(setting.value) : 0.20; // Default: $0.20/day ($6/month)
+  // $5 شهرياً للـ NAS الإضافي. القيمة اليومية التقريبية تحفظ كدقة كافية،
+  // بينما تسوية المحفظة تُدوَّر إلى سنتين عند الخصم.
+  return setting ? parseFloat(setting.value) : (5 / 30);
+}
+
+/** يحسب تكلفة NAS اليومية: الأول 15$/شهر والباقي 5$/شهر. */
+export function calculateNasDailyCost(activeNasCount: number, firstNasRate: number, additionalNasRate: number): number {
+  if (activeNasCount < 1) return 0;
+  return firstNasRate + (activeNasCount - 1) * additionalNasRate;
 }
 
 /**
@@ -84,10 +92,7 @@ export async function calculateDailyCost(userId: number): Promise<{
   const additionalNasRate = await getAdditionalNasDailyRate();
 
   // First NAS at full rate, additional NAS at reduced rate
-  let dailyCost = 0;
-  if (activeNasCount >= 1) {
-    dailyCost = firstNasRate + (activeNasCount - 1) * additionalNasRate;
-  }
+  const dailyCost = calculateNasDailyCost(activeNasCount, firstNasRate, additionalNasRate);
 
   return {
     activeNasCount,
@@ -184,16 +189,17 @@ export async function processDailyBilling(
 
     // Record in wallet_ledger
     const dailyRate = await getDailyBillingRate();
+    const additionalDailyRate = await getAdditionalNasDailyRate();
     await db.insert(walletLedger).values({
       userId,
       type: "debit",
       amount: dailyCost.toFixed(2),
       balanceBefore: balanceBefore.toFixed(2),
       balanceAfter: storedBalance,
-      reason: `Daily billing: ${activeNasCount} active NAS × $${dailyRate.toFixed(2)}${
+      reason: `Daily billing: first NAS $${dailyRate.toFixed(4)} + ${Math.max(0, activeNasCount - 1)} additional NAS × $${additionalDailyRate.toFixed(4)}${
         newCreditBalance > 0 ? ` (debt: $${newCreditBalance.toFixed(2)})` : ''
       }`,
-      reasonAr: `فوترة يومية: ${activeNasCount} NAS نشط × $${dailyRate.toFixed(2)}${
+      reasonAr: `فوترة يومية: NAS الأول $${dailyRate.toFixed(4)} + ${Math.max(0, activeNasCount - 1)} NAS إضافي × $${additionalDailyRate.toFixed(4)}${
         newCreditBalance > 0 ? ` (مديونية: $${newCreditBalance.toFixed(2)})` : ''
       }`,
       entityType: "billing",
@@ -203,6 +209,7 @@ export async function processDailyBilling(
       metadata: JSON.stringify({
         activeNasCount,
         dailyRate,
+        additionalDailyRate,
         billingPeriod: "daily",
         debtAccumulated: newCreditBalance > creditBefore ? (newCreditBalance - creditBefore).toFixed(2) : '0',
       }),
@@ -337,8 +344,7 @@ export async function getUsersDueForDailyBilling(now = new Date()): Promise<numb
     .where(
       and(
         eq(users.role, "client"),
-        eq(users.dailyBillingEnabled, true),
-        sql`${users.billingStartAt} IS NOT NULL`
+        eq(users.dailyBillingEnabled, true)
       )
     );
 

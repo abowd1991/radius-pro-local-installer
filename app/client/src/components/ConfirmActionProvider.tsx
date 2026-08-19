@@ -29,12 +29,10 @@ export function ConfirmActionProvider() {
     if (!isClosing) confirmRef.current?.focus();
   }, [isClosing, pending]);
 
-  if (!pending) return null;
-
-  const { options } = pending;
-  const destructive = options.tone === "destructive";
+  // Keep every Hook above the conditional return. Opening a confirmation must
+  // not introduce a Hook that was absent in the previous render.
   const close = useCallback((confirmed: boolean) => {
-    if (isClosing) return;
+    if (!pending || isClosing) return;
     pending.resolve(confirmed);
     setIsClosing(true);
     window.setTimeout(() => {
@@ -42,6 +40,11 @@ export function ConfirmActionProvider() {
       setIsClosing(false);
     }, 180);
   }, [isClosing, pending]);
+
+  if (!pending) return null;
+
+  const { options } = pending;
+  const destructive = options.tone === "destructive";
 
   return (
     <div className={`fixed inset-0 z-[121] flex min-h-[100dvh] items-end justify-center bg-slate-950/60 px-3 pt-12 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur-[5px] motion-safe:transition-opacity motion-safe:duration-200 sm:items-center sm:p-4 ${isClosing ? "motion-safe:opacity-0" : "opacity-100"}`} dir={direction}>

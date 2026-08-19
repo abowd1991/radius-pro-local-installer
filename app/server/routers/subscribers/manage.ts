@@ -40,8 +40,14 @@ import { importCardsFromCsv, parseCsvCards } from "../../db/importCardsFromCsv";
 import { parseFileToRows, mapRowsToCards } from "../../db/parseFileCards";
 import { isAdmin } from "../../_core/roles";
 import { broadbandIdentityRepository } from '../../domains/broadband/repositories/BroadbandIdentityRepository';
+import { recycleBinService } from "../../domains/recycleBin/RecycleBinService";
 
 // Local helper (mirrors the one in routers.ts)
+function hasEffectiveSubscriberOwnership(user: any, subscriber: { ownerId: number | null; createdBy: number | null }): boolean {
+  if (isAdmin(user.role)) return true;
+  const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(user));
+  return subscriber.ownerId === effectiveOwnerId || subscriber.createdBy === effectiveOwnerId;
+}
 
 
 export const create = resellerProcedure
@@ -67,6 +73,7 @@ export const create = resellerProcedure
       paymentMethod: z.enum(['cash', 'wallet', 'card', 'bank_transfer', 'online']).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       // Check if username exists
       const exists = await broadbandIdentityRepository.isUsernameReserved(input.username);
       if (exists) {
@@ -76,8 +83,8 @@ export const create = resellerProcedure
       // Create subscriber
       const subscriberId = await db.createSubscriber({
         ...input,
-        ownerId: ctx.user.id,
-        createdBy: ctx.user.id,
+        ownerId: effectiveOwnerId,
+        createdBy: effectiveOwnerId,
         subscriptionEndDate: input.subscriptionEndDate ? new Date(input.subscriptionEndDate) : undefined,
       });
 
@@ -93,7 +100,7 @@ export const create = resellerProcedure
           {
             simultaneousUse: input.simultaneousUse,
             staticIp: input.staticIp,
-            createdBy: ctx.user.id,  // NAS isolation: owner_<id> group
+            createdBy: effectiveOwnerId,  // NAS isolation: owner_<id> group
           }
         );
       }
@@ -130,7 +137,7 @@ export const update = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
 
@@ -259,7 +266,7 @@ export const suspend = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
 
@@ -289,7 +296,7 @@ export const activate = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
 
@@ -318,7 +325,7 @@ export const renew = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
 
@@ -370,12 +377,9 @@ export const deleteSubscriber = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
-
-      // Remove all RADIUS entries (radcheck, radreply, radusergroup)
-      await radiusSubscribers.deleteSubscriberRadiusEntries(subscriber.subscriber.username);
 
       // Disconnect user if online
       try {
@@ -384,8 +388,12 @@ export const deleteSubscriber = resellerProcedure
         console.error('[Subscribers] Failed to disconnect user:', e);
       }
 
-      await db.deleteSubscriber(input.id);
-      return { success: true };
+      return recycleBinService.archiveSubscriber(input.id, {
+        userId: ctx.user.id,
+        role: ctx.user.role,
+        ownerId: subscriber.subscriber.ownerId,
+        resellerId: ctx.user.role === "reseller" ? ctx.user.id : ctx.user.resellerId ?? null,
+      });
     });
 
   // Disconnect user (kick off network)
@@ -399,7 +407,7 @@ export const disconnect = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
 
@@ -417,12 +425,13 @@ export const sendCustomSms = resellerProcedure
     .mutation(async ({ input, ctx }) => {
       const subscriber = await db.getSubscriberById(input.id);
       if (!subscriber) throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
       const phone = subscriber.subscriber.phone?.trim();
       if (!phone) throw new TRPCError({ code: 'BAD_REQUEST', message: 'لا يوجد رقم هاتف للمشترك' });
-      const result = await tweetsmsService.sendSmsTenant(ctx.user.id, phone, input.message, {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      const result = await tweetsmsService.sendSmsTenant(effectiveOwnerId, phone, input.message, {
         type: 'manual',
         sentBy: ctx.user.id,
       });

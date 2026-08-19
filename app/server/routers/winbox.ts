@@ -44,6 +44,10 @@ function canViewAllData(role: string): boolean {
   return isAdmin(role);
 }
 
+function hasEffectiveNasOwnership(user: any, nas: { ownerId: number }): boolean {
+  return canViewAllData(user.role) || nas.ownerId === getEffectiveOwnerId(getTenantContext(user));
+}
+
 export const winboxRouter = router({
   // Shared public address for UI setup instructions. The system setting wins so
   // an installed server can be migrated without rebuilding any frontend page.
@@ -60,16 +64,17 @@ export const winboxRouter = router({
   }),
 
   // Get all NAS devices with winbox info for current user
-  getMyNasDevices: protectedProcedure.query(async ({ ctx }) => {
-    const db2 = await db.getDb();
-    if (!db2) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
-    const { nasDevices, vpnConnections } = await import('../../drizzle/schema');
-    const { eq } = await import('drizzle-orm');
-    let nasQuery;
-    if (ctx.user.role === 'owner' || ctx.user.role === 'super_admin') {
-      nasQuery = db2.select().from(nasDevices);
-    } else {
-      nasQuery = db2.select().from(nasDevices).where(eq(nasDevices.ownerId, ctx.user.id));
+	  getMyNasDevices: protectedProcedure.query(async ({ ctx }) => {
+	    const db2 = await db.getDb();
+	    if (!db2) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'DB unavailable' });
+	    const { nasDevices, vpnConnections } = await import('../../drizzle/schema');
+	    const { eq } = await import('drizzle-orm');
+	    const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+	    let nasQuery;
+	    if (canViewAllData(ctx.user.role)) {
+	      nasQuery = db2.select().from(nasDevices);
+	    } else {
+	      nasQuery = db2.select().from(nasDevices).where(eq(nasDevices.ownerId, effectiveOwnerId));
     }
     const devices = await nasQuery;
     // Get all VPN connections for these devices to get actual IP
@@ -108,7 +113,7 @@ export const winboxRouter = router({
 
       const [nas] = await db2.select().from(nasDevices).where(eq(nasDevices.id, input.nasId)).limit(1);
       if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
-      if (ctx.user.role !== 'owner' && ctx.user.role !== 'super_admin' && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
 
@@ -148,7 +153,7 @@ export const winboxRouter = router({
       const { vpnConnections } = await import('../../drizzle/schema');
       const [nas] = await db2.select().from(nasDevices).where(eq(nasDevices.id, input.nasId)).limit(1);
       if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
-      if (ctx.user.role !== 'owner' && ctx.user.role !== 'super_admin' && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
 
@@ -189,7 +194,7 @@ export const winboxRouter = router({
 
       const [nas] = await db2.select().from(nasDevices).where(eq(nasDevices.id, input.nasId)).limit(1);
       if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
-      if (ctx.user.role !== 'owner' && ctx.user.role !== 'super_admin' && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
 
@@ -211,7 +216,7 @@ export const winboxRouter = router({
 
       const [nas] = await db2.select().from(nasDevices).where(eq(nasDevices.id, input.nasId)).limit(1);
       if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
-      if (ctx.user.role !== 'owner' && ctx.user.role !== 'super_admin' && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
 

@@ -9,16 +9,29 @@ export type ControllableMenuItem = {
   permissionGroup?: string;
 };
 
-// Account self-service must remain reachable for every signed-in user.
-const CORE_PATHS = new Set(["/dashboard", "/profile", "/settings"]);
+// Dashboard and profile remain personal account pages. Settings is deliberately
+// excluded so client_staff receives it only through explicit delegation.
+const CORE_PATHS = new Set(["/dashboard", "/profile", "/user-guide"]);
 
 export function isClientManagedRole(role: string) {
   return role === "client" || role === "reseller" || role === "client_owner" || role === "client_admin" || role === "client_staff";
 }
 
-export function isMenuPathAllowed(pathname: string, allowedMenuItems: string[] | null | undefined) {
+export function isMenuPathAllowed(pathname: string, allowedMenuItems: string[] | null | undefined, role?: string) {
   if (CORE_PATHS.has(pathname)) return true;
-  if (!Array.isArray(allowedMenuItems)) return true;
+  if (pathname === "/settings") {
+    if (role === "client_staff") {
+      return Array.isArray(allowedMenuItems) && allowedMenuItems.some((path) => path === "/settings");
+    }
+    return true;
+  }
+  if (pathname === "/staff-management") {
+    return role === "client" || role === "client_owner";
+  }
+  if (pathname === "/recycle-bin") {
+    return role !== "client_staff";
+  }
+  if (!Array.isArray(allowedMenuItems)) return role !== "client_staff";
   return allowedMenuItems.some((allowedPath) =>
     pathname === allowedPath || pathname.startsWith(`${allowedPath}/`)
   );

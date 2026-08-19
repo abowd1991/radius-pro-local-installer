@@ -37,6 +37,8 @@ import {
   Timer,
   ShoppingBag,
   Star,
+  Trash2,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -224,6 +226,9 @@ export const ALL_MENU_SECTIONS: MenuSection[] = [
     labelAr: "الإعدادات",
     items: [
       { icon: Settings, label: "Settings", labelAr: "الإعدادات", path: "/settings" },
+      { icon: BookOpen, label: "User Guide", labelAr: "دليل الاستخدام", path: "/user-guide" },
+      { icon: Users, label: "User Management", labelAr: "إدارة المستخدمين", path: "/staff-management", requiredRole: ["client", "client_owner"] },
+      { icon: Trash2, label: "Recycle Bin", labelAr: "سلة المحذوفات", path: "/recycle-bin", requiredRole: ["owner", "super_admin", "reseller", "client", "client_owner", "client_admin"] },
     ],
   },
 
@@ -278,9 +283,15 @@ export function filterMenuSections(
   permissions: Record<string, boolean>,
   allowedMenuItems?: string[] | null,
 ): MenuSection[] {
-  const enforceMenuItems = (role === "client" || role === "reseller") && Array.isArray(allowedMenuItems);
+  const enforceMenuItems = (role === "client" || role === "reseller" || role === "client_staff") && Array.isArray(allowedMenuItems);
   const hasAllowedMenuItem = (path: string) => {
-    if (path === "/dashboard" || path === "/settings" || path === "/profile") return true;
+    if (path === "/dashboard" || path === "/profile" || path === "/user-guide") return true;
+    if (path === "/settings") {
+      return role !== "client_staff" || Boolean(allowedMenuItems?.includes("/settings"));
+    }
+    if (path === "/staff-management" && (role === "client" || role === "client_owner")) return true;
+    if (path === "/recycle-bin" && (role === "client" || role === "client_owner" || role === "client_admin" || role === "reseller")) return true;
+    if (role === "client_staff" && !Array.isArray(allowedMenuItems)) return false;
     if (!enforceMenuItems) return true;
     return allowedMenuItems!.some((allowedPath) => path === allowedPath || path.startsWith(`${allowedPath}/`));
   };

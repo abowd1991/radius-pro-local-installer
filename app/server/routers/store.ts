@@ -150,8 +150,15 @@ async function assertStoreOwnership(storeId: number, userId: number, role: strin
   const db = await getDb();
   const [store] = await db.select().from(stores).where(eq(stores.id, storeId)).limit(1);
   if (!store) throw new TRPCError({ code: "NOT_FOUND", message: "المتجر غير موجود" });
-  const isAdmin = isAdminFn(role);
-  if (!isAdmin && store.ownerId !== userId) {
+  const [actor] = await db
+    .select({ id: users.id, role: users.role, tenantId: users.tenantId, resellerId: users.resellerId })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (!actor) throw new TRPCError({ code: "UNAUTHORIZED", message: "الحساب غير موجود" });
+  const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(actor));
+  const isAdmin = isAdminFn(actor.role);
+  if (!isAdmin && store.ownerId !== effectiveOwnerId) {
     throw new TRPCError({ code: "FORBIDDEN", message: "ليس لديك صلاحية للوصول إلى هذا المتجر" });
   }
   return store;

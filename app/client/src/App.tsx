@@ -71,6 +71,8 @@ const SmsCards = lazy(() => import("./pages/SmsCards"));
 const StorePage = lazy(() => import("./pages/StorePage"));
 const StoreManagement = lazy(() => import("./pages/StoreManagement"));
 const FeedbackCenter = lazy(() => import("./pages/admin/FeedbackCenter"));
+const RecycleBin = lazy(() => import("./pages/RecycleBin"));
+const UserGuide = lazy(() => import("./pages/UserGuide"));
 
 // ─── Lazy global widgets (mounted app-wide but not critical for first paint) ─
 const BroadcastPopup = lazy(() => import("./components/BroadcastPopup"));
@@ -120,6 +122,8 @@ function Router() {
         <Route path="/nas"><DashboardLayout><NasDevices /></DashboardLayout></Route>
         <Route path="/winbox"><DashboardLayout><WinboxAccess /></DashboardLayout></Route>
         <Route path="/settings"><DashboardLayout><Settings /></DashboardLayout></Route>
+        <Route path="/user-guide"><DashboardLayout><UserGuide /></DashboardLayout></Route>
+        <Route path="/recycle-bin"><DashboardLayout><RecycleBin /></DashboardLayout></Route>
         <Route path="/card-check-settings"><DashboardLayout><CardCheckSettings /></DashboardLayout></Route>
         <Route path="/profile"><DashboardLayout><Profile /></DashboardLayout></Route>
         <Route path="/sessions"><DashboardLayout><Sessions /></DashboardLayout></Route>

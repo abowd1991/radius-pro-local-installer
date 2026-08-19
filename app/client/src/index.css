@@ -310,6 +310,46 @@
 }
 
 @layer components {
+  /* صفحة المستخدمين كانت مبنية بألوان Slate ثابتة للوضع الداكن؛
+     هذا النطاق يعيدها إلى رموز وضع النهار من دون المساس بهوية الوضع الداكن. */
+  :root:not(.dark) .users-management-page .bg-slate-800\/50,
+  :root:not(.dark) .users-management-page .bg-slate-800 {
+    background-color: var(--card) !important;
+  }
+
+  :root:not(.dark) .users-management-page .bg-slate-900\/50,
+  :root:not(.dark) .users-management-page .bg-slate-700\/50,
+  :root:not(.dark) .users-management-page .bg-slate-700 {
+    background-color: var(--muted) !important;
+  }
+
+  :root:not(.dark) .users-management-page .border-slate-700,
+  :root:not(.dark) .users-management-page .border-slate-600 {
+    border-color: var(--border) !important;
+  }
+
+  :root:not(.dark) .users-management-page .text-white,
+  :root:not(.dark) .users-management-page .text-slate-300,
+  :root:not(.dark) .users-management-page .text-slate-200 {
+    color: var(--foreground) !important;
+  }
+
+  :root:not(.dark) .users-management-page .text-slate-400,
+  :root:not(.dark) .users-management-page .text-slate-500 {
+    color: var(--muted-foreground) !important;
+  }
+
+  :root:not(.dark) .users-management-page .hover\:bg-slate-700\/30:hover,
+  :root:not(.dark) .users-management-page .focus\:bg-slate-700:focus {
+    background-color: var(--accent) !important;
+  }
+
+  :root:not(.dark) .users-management-page [data-state="active"].data-\[state\=active\]\:bg-green-600,
+  :root:not(.dark) .users-management-page [data-state="active"].data-\[state\=active\]\:bg-blue-600,
+  :root:not(.dark) .users-management-page [data-state="active"].data-\[state\=active\]\:bg-yellow-600 {
+    color: var(--primary-foreground) !important;
+  }
+
   /**
    * Custom container utility that centers content and adds responsive padding.
    *

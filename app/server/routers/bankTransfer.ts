@@ -51,6 +51,7 @@ export const submitRequest = protectedProcedure
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       
       const { bankTransferRequests } = await import('../../drizzle/schema');
       
@@ -58,13 +59,13 @@ export const submitRequest = protectedProcedure
         const imageBuffer = Buffer.from(input.receiptImage.data, 'base64');
         
         // Generate temporary reference number (will be replaced by admin)
-        const tempRefNumber = `TEMP-${ctx.user.id}-${Date.now()}`;
+        const tempRefNumber = `TEMP-${effectiveOwnerId}-${Date.now()}`;
         
         // Save to S3 storage
         let receiptImageUrl;
         try {
           console.log('[Bank Transfer] Saving receipt image to S3:', {
-            userId: ctx.user.id,
+            userId: effectiveOwnerId,
             refNumber: tempRefNumber,
             bufferSize: imageBuffer.length,
             mimeType: input.receiptImage.mimeType
@@ -74,7 +75,7 @@ export const submitRequest = protectedProcedure
           const ext = input.receiptImage.mimeType.split('/')[1] || 'jpg';
           const date = new Date().toISOString().split('T')[0];
           const timestamp = Date.now();
-          const filename = `bank-receipts/user-${ctx.user.id}_ref-${tempRefNumber}_${date}_${timestamp}.${ext}`;
+          const filename = `bank-receipts/user-${effectiveOwnerId}_ref-${tempRefNumber}_${date}_${timestamp}.${ext}`;
           
           const { url } = await storagePut(
             filename,
@@ -96,7 +97,7 @@ export const submitRequest = protectedProcedure
         
         // Create pending request (admin will fill in the details)
         const [result] = await db.insert(bankTransferRequests).values({
-          userId: ctx.user.id,
+          userId: effectiveOwnerId,
           requestedAmount: input.requestedAmount.toString(),
           requestedCurrency: input.requestedCurrency,
           transferredAmount: '0', // Will be filled by admin
@@ -180,10 +181,11 @@ export const getMy = protectedProcedure
     .query(async ({ ctx }) => {
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       
       const { bankTransferRequests } = await import('../../drizzle/schema');
       const requests = await db.select().from(bankTransferRequests)
-        .where(eq(bankTransferRequests.userId, ctx.user.id))
+        .where(eq(bankTransferRequests.userId, effectiveOwnerId))
         .orderBy(desc(bankTransferRequests.submittedAt));
       return { requests };
     });

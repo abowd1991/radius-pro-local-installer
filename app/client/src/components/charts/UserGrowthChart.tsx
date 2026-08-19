@@ -103,7 +103,7 @@ export function UserGrowthChart({ data, isLoading }: UserGrowthChartProps) {
                 borderRadius: '8px',
               }}
               labelStyle={{ color: 'hsl(var(--foreground))' }}
-              formatter={(value: number, name: string) => {
+              formatter={(value: any, name: any) => {
                 const labels: Record<string, string> = {
                   users: language === 'ar' ? 'مستخدمين' : 'Users',
                   clients: language === 'ar' ? 'عملاء' : 'Clients',

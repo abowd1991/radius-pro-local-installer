@@ -46,6 +46,9 @@ import { vpnNasDeletionService } from '../../domains/vpn/VpnNasDeletionService';
 import { invalidateNasListCache } from '../../domains/vpn/NasListCache';
 import { portForwardingEngine } from '../../domains/network/PortForwardingEngine';
 
+const hasEffectiveNasOwnership = (user: any, nas: { ownerId: number }) =>
+  isAdmin(user.role) || nas.ownerId === getEffectiveOwnerId(getTenantContext(user));
+
 export const create = activeSubscriptionProcedure
     .input(z.object({
       name: z.string().min(1),
@@ -66,8 +69,8 @@ export const create = activeSubscriptionProcedure
       lanCidr: z.string().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Set ownerId to current user
-      const ownerId = ctx.user.id;
+      // Persist under the official client account; actor identity remains ctx.user.id for auditing.
+      const ownerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       const usesCentralVpnProvisioning = isManagedVpnProtocol(input.connectionType);
       
       // Check billing status - block if past_due
@@ -313,11 +316,11 @@ export const update = activeSubscriptionProcedure
       mikrotikApiPassword: z.string().optional(),
       lanCidr: z.string().optional(),
     }))
-    .mutation(async ({ ctx, input }) => {
-      // Check ownership for non-super_admin
-      const nas = await nasDb.getNasById(input.id);
-      if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+	    .mutation(async ({ ctx, input }) => {
+	      // Check ownership for non-super_admin
+	      const nas = await nasDb.getNasById(input.id);
+	      if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
+	      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       
@@ -362,11 +365,11 @@ export const update = activeSubscriptionProcedure
   // Delete NAS - check ownership (requires active subscription)
 export const deleteNas = activeSubscriptionProcedure
     .input(z.object({ id: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      // Check ownership for non-super_admin
-      const nasCheck = await nasDb.getNasById(input.id);
-      if (!nasCheck) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      if (!isAdmin(ctx.user.role) && nasCheck.ownerId !== ctx.user.id) {
+	    .mutation(async ({ ctx, input }) => {
+	      // Check ownership for non-super_admin
+	      const nasCheck = await nasDb.getNasById(input.id);
+	      if (!nasCheck) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
+	      if (!hasEffectiveNasOwnership(ctx.user, nasCheck)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       // Fail closed: close external ingress before deleting the NAS identity.
@@ -483,12 +486,12 @@ export const deleteNas = activeSubscriptionProcedure
 export const bulkDeleteNas = protectedProcedure
     .input(z.object({ ids: z.array(z.number()).min(1).max(500) }))
     .mutation(async ({ ctx, input }) => {
-      const results: { id: number; success: boolean; error?: string }[] = [];
-      for (const id of input.ids) {
-        try {
-          const nasCheck = await nasDb.getNasById(id);
-          if (!nasCheck) { results.push({ id, success: false, error: 'Not found' }); continue; }
-          if (!isAdmin(ctx.user.role) && nasCheck.ownerId !== ctx.user.id) {
+	      const results: { id: number; success: boolean; error?: string }[] = [];
+	      for (const id of input.ids) {
+	        try {
+	          const nasCheck = await nasDb.getNasById(id);
+	          if (!nasCheck) { results.push({ id, success: false, error: 'Not found' }); continue; }
+	          if (!hasEffectiveNasOwnership(ctx.user, nasCheck)) {
             results.push({ id, success: false, error: 'Access denied' }); continue;
           }
           await portForwardingEngine.cleanupNas(id);
@@ -553,11 +556,10 @@ export const bulkDeleteNas = protectedProcedure
   // This MUST be called after VPN connects to make RADIUS work
 export const retryProvisioning = protectedProcedure
     .input(z.object({ nasId: z.number() }))
-    .mutation(async ({ ctx, input }) => {
-      const nas = await nasDb.getNasById(input.nasId);
-      if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
-      
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+	    .mutation(async ({ ctx, input }) => {
+	      const nas = await nasDb.getNasById(input.nasId);
+	      if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
+	      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
       

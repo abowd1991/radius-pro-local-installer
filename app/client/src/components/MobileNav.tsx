@@ -164,12 +164,12 @@ export function MobileDrawer({
   const { user, logout } = useAuth();
   const { language, setLanguage } = useLanguage();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const { permissions } = useFeatureAccess();
+  const { permissions, allowedMenuItems } = useFeatureAccess();
   const isAr = language === "ar";
   const role = (user as any)?.role || "client";
 
   // Build sections from canonical menu-config (same as desktop sidebar)
-  const sections = filterMenuSections(ALL_MENU_SECTIONS, role, (permissions ?? {}) as Record<string, boolean>).map((s) => ({
+  const sections = filterMenuSections(ALL_MENU_SECTIONS, role, (permissions ?? {}) as Record<string, boolean>, allowedMenuItems).map((s) => ({
     ...s,
     label: isAr ? s.labelAr : s.label,
     items: s.items.map((item) => ({
@@ -381,11 +381,13 @@ export function MobileDrawer({
                 <UserCircle size={16} color="var(--muted-foreground)" />
                 <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", fontFamily: "'Cairo',sans-serif" }}>{isAr ? "الملف الشخصي" : "Profile"}</span>
               </button>
-              {/* Settings */}
-              <button onClick={() => { setLocation("/settings"); setUserMenuOpen(false); onClose(); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", background: "none", border: "none", cursor: "pointer", direction: isAr ? "rtl" : "ltr", borderBottom: `1px solid var(--border)` }}>
-                <Settings size={16} color="var(--muted-foreground)" />
-                <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", fontFamily: "'Cairo',sans-serif" }}>{isAr ? "الإعدادات" : "Settings"}</span>
-              </button>
+              {/* Settings is optional for client_staff and only appears after parent delegation. */}
+              {((user as any)?.role !== "client_staff" || allowedMenuItems?.includes("/settings")) && (
+                <button onClick={() => { setLocation("/settings"); setUserMenuOpen(false); onClose(); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 16px", background: "none", border: "none", cursor: "pointer", direction: isAr ? "rtl" : "ltr", borderBottom: `1px solid var(--border)` }}>
+                  <Settings size={16} color="var(--muted-foreground)" />
+                  <span style={{ fontSize: 13, fontWeight: 500, color: "var(--foreground)", fontFamily: "'Cairo',sans-serif" }}>{isAr ? "الإعدادات" : "Settings"}</span>
+                </button>
+              )}
               {/* Language Toggle */}
               <div style={{ padding: "10px 16px", borderBottom: `1px solid var(--border)`, display: "flex", gap: 6 }}>
                 <button onClick={() => setLanguage("ar")} style={{ flex: 1, padding: "6px 0", borderRadius: 8, border: `1px solid ${language === "ar" ? "var(--primary)" : "var(--border)"}`, background: language === "ar" ? "var(--primary)" : "transparent", color: language === "ar" ? "#fff" : "var(--foreground)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'Cairo',sans-serif" }}>العربية</button>

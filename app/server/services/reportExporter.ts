@@ -1,138 +1,82 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { RevenueReport, SubscribersReport, CardsReport, SessionsReport, formatDuration } from "./reportsService";
 
 // ============================================================================
 // EXCEL EXPORT
 // ============================================================================
 
-export function generateRevenueExcel(data: RevenueReport): Buffer {
-  const workbook = XLSX.utils.book_new();
+type SpreadsheetValue = string | number;
 
-  // Summary sheet
-  const summaryData = [
-    ["تقرير الإيرادات"],
-    [],
-    ["إجمالي الإيرادات", data.totalRevenue],
-    ["عدد المعاملات", data.totalTransactions],
-    ["متوسط المعاملة", data.averageTransaction],
-  ];
-  const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "ملخص");
+function appendSheet(workbook: ExcelJS.Workbook, name: string, rows: SpreadsheetValue[][]): void {
+  const sheet = workbook.addWorksheet(name, { views: [{ rightToLeft: true }] });
+  rows.forEach(row => sheet.addRow(row));
+  sheet.columns.forEach(column => { column.width = 22; });
+}
 
-  // Revenue by period sheet
-  const periodData = [
+async function toXlsxBuffer(workbook: ExcelJS.Workbook): Promise<Buffer> {
+  return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+
+export async function generateRevenueExcel(data: RevenueReport): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  appendSheet(workbook, "ملخص", [
+    ["تقرير الإيرادات"], [], ["إجمالي الإيرادات", data.totalRevenue],
+    ["عدد المعاملات", data.totalTransactions], ["متوسط المعاملة", data.averageTransaction],
+  ]);
+  appendSheet(workbook, "الإيرادات بالفترة", [
     ["التاريخ", "الإيرادات", "عدد المعاملات"],
     ...data.revenueByPeriod.map(r => [r.date, r.revenue, r.transactions]),
-  ];
-  const periodSheet = XLSX.utils.aoa_to_sheet(periodData);
-  XLSX.utils.book_append_sheet(workbook, periodSheet, "الإيرادات بالفترة");
-
-  // Revenue by client sheet
-  const clientData = [
-    ["العميل", "الإيرادات"],
-    ...data.revenueByClient.map(c => [c.clientName, c.revenue]),
-  ];
-  const clientSheet = XLSX.utils.aoa_to_sheet(clientData);
-  XLSX.utils.book_append_sheet(workbook, clientSheet, "الإيرادات بالعميل");
-
-  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+  ]);
+  appendSheet(workbook, "الإيرادات بالعميل", [
+    ["العميل", "الإيرادات"], ...data.revenueByClient.map(c => [c.clientName, c.revenue]),
+  ]);
+  return toXlsxBuffer(workbook);
 }
 
-export function generateSubscribersExcel(data: SubscribersReport): Buffer {
-  const workbook = XLSX.utils.book_new();
-
-  // Summary sheet
-  const summaryData = [
-    ["تقرير المشتركين"],
-    [],
-    ["إجمالي المشتركين", data.totalSubscribers],
-    ["المشتركين النشطين", data.activeSubscribers],
-    ["المشتركين المنتهين", data.expiredSubscribers],
-    ["المشتركين الموقوفين", data.suspendedSubscribers],
-    ["مشتركين جدد هذه الفترة", data.newSubscribersThisPeriod],
-  ];
-  const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "ملخص");
-
-  // Growth sheet
-  const growthData = [
-    ["التاريخ", "عدد المشتركين الجدد"],
-    ...data.subscriberGrowth.map(g => [g.date, g.count]),
-  ];
-  const growthSheet = XLSX.utils.aoa_to_sheet(growthData);
-  XLSX.utils.book_append_sheet(workbook, growthSheet, "نمو المشتركين");
-
-  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+export async function generateSubscribersExcel(data: SubscribersReport): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  appendSheet(workbook, "ملخص", [
+    ["تقرير المشتركين"], [], ["إجمالي المشتركين", data.totalSubscribers],
+    ["المشتركين النشطين", data.activeSubscribers], ["المشتركين المنتهين", data.expiredSubscribers],
+    ["المشتركين الموقوفين", data.suspendedSubscribers], ["مشتركين جدد هذه الفترة", data.newSubscribersThisPeriod],
+  ]);
+  appendSheet(workbook, "نمو المشتركين", [
+    ["التاريخ", "عدد المشتركين الجدد"], ...data.subscriberGrowth.map(g => [g.date, g.count]),
+  ]);
+  return toXlsxBuffer(workbook);
 }
 
-export function generateCardsExcel(data: CardsReport): Buffer {
-  const workbook = XLSX.utils.book_new();
-
-  // Summary sheet
-  const summaryData = [
-    ["تقرير الكروت"],
-    [],
-    ["إجمالي الكروت", data.totalCards],
-    ["كروت غير مستخدمة", data.unusedCards],
-    ["كروت نشطة", data.activeCards],
-    ["كروت مستخدمة", data.usedCards],
-    ["كروت منتهية", data.expiredCards],
-  ];
-  const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "ملخص");
-
-  // Best selling plans sheet
-  const plansData = [
-    ["الباقة", "عدد الكروت", "الإيرادات"],
-    ...data.bestSellingPlans.map(p => [p.planName, p.count, p.revenue]),
-  ];
-  const plansSheet = XLSX.utils.aoa_to_sheet(plansData);
-  XLSX.utils.book_append_sheet(workbook, plansSheet, "أكثر الباقات مبيعاً");
-
-  // Time consumption sheet
-  const timeData = [
+export async function generateCardsExcel(data: CardsReport): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  appendSheet(workbook, "ملخص", [
+    ["تقرير الكروت"], [], ["إجمالي الكروت", data.totalCards], ["كروت غير مستخدمة", data.unusedCards],
+    ["كروت نشطة", data.activeCards], ["كروت مستخدمة", data.usedCards], ["كروت منتهية", data.expiredCards],
+  ]);
+  appendSheet(workbook, "أكثر الباقات مبيعاً", [
+    ["الباقة", "عدد الكروت", "الإيرادات"], ...data.bestSellingPlans.map(p => [p.planName, p.count, p.revenue]),
+  ]);
+  appendSheet(workbook, "استهلاك الوقت", [
     ["اسم المستخدم", "الباقة", "الوقت المستهلك"],
     ...data.timeConsumptionByCard.map(t => [t.username, t.planName, formatDuration(t.totalTime)]),
-  ];
-  const timeSheet = XLSX.utils.aoa_to_sheet(timeData);
-  XLSX.utils.book_append_sheet(workbook, timeSheet, "استهلاك الوقت");
-
-  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+  ]);
+  return toXlsxBuffer(workbook);
 }
 
-export function generateSessionsExcel(data: SessionsReport): Buffer {
-  const workbook = XLSX.utils.book_new();
-
-  // Summary sheet
-  const summaryData = [
-    ["تقرير الجلسات"],
-    [],
-    ["إجمالي الجلسات", data.totalSessions],
-    ["جلسات نشطة", data.activeSessions],
-    ["جلسات منتهية", data.completedSessions],
-    ["متوسط مدة الجلسة", formatDuration(data.averageSessionDuration)],
+export async function generateSessionsExcel(data: SessionsReport): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  appendSheet(workbook, "ملخص", [
+    ["تقرير الجلسات"], [], ["إجمالي الجلسات", data.totalSessions], ["جلسات نشطة", data.activeSessions],
+    ["جلسات منتهية", data.completedSessions], ["متوسط مدة الجلسة", formatDuration(data.averageSessionDuration)],
     ["إجمالي وقت الجلسات", formatDuration(data.totalSessionTime)],
-  ];
-  const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
-  XLSX.utils.book_append_sheet(workbook, summarySheet, "ملخص");
-
-  // Sessions by day sheet
-  const dayData = [
+  ]);
+  appendSheet(workbook, "الجلسات بالتاريخ", [
     ["التاريخ", "عدد الجلسات", "إجمالي المدة"],
     ...data.sessionsByDay.map(s => [s.date, s.count, formatDuration(s.duration)]),
-  ];
-  const daySheet = XLSX.utils.aoa_to_sheet(dayData);
-  XLSX.utils.book_append_sheet(workbook, daySheet, "الجلسات بالتاريخ");
-
-  // Sessions by NAS sheet
-  const nasData = [
-    ["جهاز NAS", "عدد الجلسات"],
-    ...data.sessionsByNas.map(s => [s.nasName, s.count]),
-  ];
-  const nasSheet = XLSX.utils.aoa_to_sheet(nasData);
-  XLSX.utils.book_append_sheet(workbook, nasSheet, "الجلسات بالجهاز");
-
-  return Buffer.from(XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }));
+  ]);
+  appendSheet(workbook, "الجلسات حسب جهاز NAS", [
+    ["جهاز NAS", "عدد الجلسات"], ...data.sessionsByNas.map(s => [s.nasName, s.count]),
+  ]);
+  return toXlsxBuffer(workbook);
 }
 
 // ============================================================================

@@ -88,7 +88,7 @@ export const plansRouter = router({
         name: `${plan.name} (نسخة)`,
         nameAr: plan.nameAr ? `${plan.nameAr} (نسخة)` : undefined,
         status: 'inactive',
-        ownerId: ctx.user.id,
+        ownerId: effectiveOwnerId,
       });
     }),
   getById: protectedProcedure
@@ -162,13 +162,14 @@ export const plansRouter = router({
       restrictedNasIds: z.string().nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       const drizzleDb = await getDb();
       let currency = input.currency;
       if (!currency && drizzleDb) {
-        const [owner] = await drizzleDb.select({ preferredCurrency: users.preferredCurrency }).from(users).where(eq(users.id, ctx.user.id)).limit(1);
+        const [owner] = await drizzleDb.select({ preferredCurrency: users.preferredCurrency }).from(users).where(eq(users.id, effectiveOwnerId)).limit(1);
         currency = owner?.preferredCurrency || 'USD';
       }
-      return planDb.createPlan({ ...input, currency: currency || 'USD', ownerId: ctx.user.id });
+      return planDb.createPlan({ ...input, currency: currency || 'USD', ownerId: effectiveOwnerId });
     }),
   update: activeSubscriptionProcedure
     .input(z.object({
@@ -482,7 +483,9 @@ export const plansRouter = router({
     .mutation(async ({ ctx, input }) => {
       const plan = await planDb.getPlanById(input.id);
       if (!plan) throw new TRPCError({ code: "NOT_FOUND", message: "Plan not found" });
-      if (!isAdmin(ctx.user.role) && plan.ownerId !== ctx.user.id) {
+      const tenantContext = getTenantContext(ctx.user);
+      const effectiveOwnerId = getEffectiveOwnerId(tenantContext);
+      if (!canSeeAllData(tenantContext) && plan.ownerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       // ── Guard: prevent deletion if plan has linked cards ──

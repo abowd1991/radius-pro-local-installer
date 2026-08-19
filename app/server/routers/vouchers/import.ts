@@ -65,7 +65,7 @@ export const importFromCsv = superAdminProcedure
       return importCardsFromCsv({
         cards,
         planId: input.planId,
-        createdBy: ctx.user.id,
+        createdBy: getEffectiveOwnerId(getTenantContext(ctx.user)),
         assignedToUserId: input.assignedToUserId,
         batchName: input.batchName,
         subscriberGroup: input.subscriberGroup,

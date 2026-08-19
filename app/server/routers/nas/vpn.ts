@@ -40,6 +40,8 @@ import { parseFileToRows, mapRowsToCards } from "../../db/parseFileCards";
 import * as sshVpn from "../../services/sshVpnService";
 import { isAdmin } from "../../_core/roles";
 
+const hasEffectiveNasOwnership = (user: any, nas: { ownerId: number }) =>
+  isAdmin(user.role) || nas.ownerId === getEffectiveOwnerId(getTenantContext(user));
 
 export const syncVpnIp = protectedProcedure
     .input(z.object({ id: z.number() }))
@@ -47,9 +49,7 @@ export const syncVpnIp = protectedProcedure
       // Get NAS device
       const nas = await nasDb.getNasById(input.id);
       if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      
-      // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       
@@ -106,9 +106,7 @@ export const updateVpnIp = protectedProcedure
       // Get NAS device
       const nas = await nasDb.getNasById(input.id);
       if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      
-      // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       
@@ -351,9 +349,7 @@ export const getVpnStatus = protectedProcedure
       // Get NAS device
       const nas = await nasDb.getNasById(input.id);
       if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      
-      // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       
@@ -409,9 +405,7 @@ export const autoSyncVpnIp = protectedProcedure
       // Get NAS device
       const nas = await nasDb.getNasById(input.id);
       if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      
-      // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       
@@ -559,9 +553,7 @@ export const getAllocatedVpnIp = protectedProcedure
     .query(async ({ ctx, input }) => {
       const nas = await nasDb.getNasById(input.nasId);
       if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      
-      // Check ownership
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+      if (!hasEffectiveNasOwnership(ctx.user, nas)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       

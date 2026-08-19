@@ -9,6 +9,7 @@ import { createDatabaseBackup, cleanupOldBackups } from "../services/backupServi
 import { triggerBillingCycle } from "../services/billingCronJob";
 import { checkAndProvisionPendingNas } from "../services/provisioningService";
 import { speedSchedulerService } from "../services/speedSchedulerService";
+import { recycleBinService } from "../domains/recycleBin/RecycleBinService";
 
 export type V2JobId =
   | "cleanup_stale_sessions"
@@ -18,7 +19,8 @@ export type V2JobId =
   | "backup_daily"
   | "provisioning_check_pending"
   | "network_reconcile_port_forwarding"
-  | "speed_scheduler";
+  | "speed_scheduler"
+  | "recycle_bin_cleanup";
 
 export type V2JobDefinition = {
   id: V2JobId;
@@ -88,6 +90,15 @@ export const V2_JOB_CATALOG: readonly V2JobDefinition[] = [
     descriptionAr: "يعالج تغييرات السرعة المستحقة من Redis مع أقفال تمنع تكرار التنفيذ.",
     interval: "كل دقيقة", intervalMs: 60_000, schedulerManaged: true,
     run: async () => { await speedSchedulerService.runPendingSchedules(); return "تمت معالجة تغييرات السرعة المستحقة"; },
+  },
+  {
+    id: "recycle_bin_cleanup", nameAr: "تنظيف سلة المحذوفات", categoryAr: "النظام",
+    descriptionAr: "يحذف تلقائياً أرشيف العناصر التي تجاوزت مدة الاحتفاظ المحددة في إعدادات النظام.",
+    interval: "يفحص كل ساعة", intervalMs: 60 * 60_000, schedulerManaged: true,
+    run: async () => {
+      const result = await recycleBinService.cleanupIfDue();
+      return result.skipped ? result.reason ?? "تم تجاوز التنظيف" : `تم الحذف النهائي لـ ${result.deleted} عنصر منتهي الاحتفاظ`;
+    },
   },
 ] as const;
 

@@ -110,7 +110,7 @@ export function SessionsTimelineChart({ data, isLoading }: SessionsTimelineChart
                 borderRadius: '8px',
               }}
               labelStyle={{ color: 'hsl(var(--foreground))' }}
-              formatter={(value: number, name: string) => {
+              formatter={(value: any, name: any) => {
                 if (name === 'sessions') {
                   return [value, language === 'ar' ? 'جلسات' : 'Sessions'];
                 }

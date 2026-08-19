@@ -72,7 +72,7 @@ export function RevenueTrendChart({ data, isLoading }: RevenueTrendChartProps) {
               border: '1px solid hsl(var(--border))',
               borderRadius: '8px'
             }}
-            formatter={(value: number) => [`$${value.toFixed(2)}`, 'Revenue']}
+            formatter={(value: any) => [`$${Number(value ?? 0).toFixed(2)}`, 'Revenue']}
           />
           <Legend />
           <Line 

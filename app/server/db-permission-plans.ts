@@ -324,7 +324,7 @@ export async function deleteUserMenuItemOverride(userId: number, menuPath: strin
 // USER EFFECTIVE PERMISSIONS
 // ============================================================================
 
-export async function getUserEffectivePermissions(userId: number) {
+export async function getUserEffectivePermissions(userId: number): Promise<any> {
   console.log('[getUserEffectivePermissions] Called with userId:', userId);
   const db = await getDb();
   // Get user
@@ -347,6 +347,36 @@ export async function getUserEffectivePermissions(userId: number) {
       overrides: [],
       menuItemOverrides: [],
       allowedMenuItems: resolveAllowedMenuItems({ planMenuItems: null, planGroups: allGroups, overrides: [] }),
+    };
+  }
+
+  // client_staff لا يرث صلاحيات العميل تلقائياً. يسمح له فقط بما يختاره
+  // العميل من نطاق صلاحياته الفعلي، لذلك لا يتجاوز الموظف خطة العميل أو
+  // الاستثناءات التي وضعها المالك على العميل.
+  if (user.role === "client_staff" && user.tenantId) {
+    const parentPermissions = await getUserEffectivePermissions(user.tenantId);
+    const allStaffOverrides = await getUserPermissionOverrides(userId);
+    const allStaffMenuOverrides = await getUserMenuItemOverrides(userId);
+    const staffOverrides = allStaffOverrides.filter((override: any) => override.createdBy === user.tenantId && override.reason === "client_staff_delegation");
+    const staffMenuOverrides = allStaffMenuOverrides.filter((override: any) => override.createdBy === user.tenantId && override.reason === "client_staff_delegation");
+    const grantedGroupIds = new Set(staffOverrides.filter((override: any) => override.isGranted).map((override: any) => override.groupId));
+    const groups = parentPermissions?.groups.filter((group: any) => grantedGroupIds.has(group.id)) ?? [];
+    const parentMenuItems = parentPermissions?.allowedMenuItems ?? [];
+    const allowedMenuItems = staffMenuOverrides
+      .filter((override: any) => override.isGranted)
+      .map((override: any) => override.menuPath)
+      .filter((path: string) => path === "/settings" || parentMenuItems.some((parentPath: string) => path === parentPath || path.startsWith(`${parentPath}/`)))
+      .sort();
+
+    return {
+      userId,
+      role: user.role,
+      planId: null,
+      planName: `Staff of ${user.tenantId}`,
+      groups,
+      overrides: staffOverrides,
+      menuItemOverrides: staffMenuOverrides,
+      allowedMenuItems,
     };
   }
 

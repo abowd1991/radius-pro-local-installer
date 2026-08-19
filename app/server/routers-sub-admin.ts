@@ -3,7 +3,7 @@ import { router, protectedProcedure } from "./_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getDb } from "./db";
 import { users } from "../drizzle/schema";
-import { eq, and, sql } from "drizzle-orm";
+import { eq, and, ne, or, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { logAudit } from "./services/auditLogService";
 
@@ -23,29 +23,34 @@ export const subAdminRouter = router({
     .input(
       z.object({
         name: z.string().min(1, "Name is required"),
+        username: z.string().min(3, "Username must be at least 3 characters").max(64),
         email: z.string().email("Invalid email"),
         password: z.string().min(6, "Password must be at least 6 characters"),
-        role: z.enum(["client_admin", "client_staff"]),
+        role: z.literal("client_staff"),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
 
       // Only client_owner can create sub-admins
-      if (ctx.user.role !== "client_owner") {
+      if (ctx.user.role !== "client_owner" && ctx.user.role !== "client") {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only client owners can create sub-admins",
         });
       }
 
-      // Check if email already exists
+      // A staff account is always a local username/password account.
+      // Both identifiers must remain globally unique because either can be used at login.
       const [existingUser] = await db
         .select()
         .from(users)
-        .where(eq(users.email, input.email));
+        .where(or(eq(users.email, input.email), eq(users.username, input.username)));
 
       if (existingUser) {
+        if (existingUser.username === input.username) {
+          throw new TRPCError({ code: "CONFLICT", message: "اسم المستخدم مستخدم بالفعل" });
+        }
         throw new TRPCError({
           code: "CONFLICT",
           message: "Email already exists",
@@ -53,13 +58,17 @@ export const subAdminRouter = router({
       }
 
       // Hash password
-      const hashedPassword = await bcrypt.hash(input.password, 10);
+      const passwordHash = await bcrypt.hash(input.password, 10);
 
       // Create sub-admin with tenantId = client_owner's id
       const [newSubAdmin] = await db.insert(users).values({
         name: input.name,
+        username: input.username,
         email: input.email,
-        password: hashedPassword,
+        passwordHash,
+        loginMethod: "traditional",
+        emailVerified: true,
+        onboardingCompleted: true,
         role: input.role,
         tenantId: ctx.user.id, // Link to parent client
         status: "active",
@@ -77,6 +86,7 @@ export const subAdminRouter = router({
         result: "success",
         details: {
           email: input.email,
+          username: input.username,
           role: input.role,
         },
       });
@@ -84,6 +94,7 @@ export const subAdminRouter = router({
       return {
         id: newSubAdmin.insertId,
         name: input.name,
+        username: input.username,
         email: input.email,
         role: input.role,
       };
@@ -96,7 +107,7 @@ export const subAdminRouter = router({
     const db = await getDb();
 
     // Owner/super_admin can see all sub-admins, client_owner can see only their own
-    if (ctx.user.role !== "client_owner" && ctx.user.role !== "owner" && ctx.user.role !== "super_admin") {
+    if (ctx.user.role !== "client_owner" && ctx.user.role !== "client" && ctx.user.role !== "owner" && ctx.user.role !== "super_admin") {
       throw new TRPCError({
         code: "FORBIDDEN",
         message: "Only owners and client owners can list sub-admins",
@@ -108,6 +119,7 @@ export const subAdminRouter = router({
       .select({
         id: users.id,
         name: users.name,
+        username: users.username,
         email: users.email,
         role: users.role,
         status: users.status,
@@ -131,9 +143,10 @@ export const subAdminRouter = router({
       z.object({
         id: z.number(),
         name: z.string().min(1).optional(),
+        username: z.string().min(3).max(64).optional(),
         email: z.string().email().optional(),
         password: z.string().min(6).optional(),
-        role: z.enum(["client_admin", "client_staff"]).optional(),
+        role: z.literal("client_staff").optional(),
         status: z.enum(["active", "suspended", "trial"]).optional(),
       })
     )
@@ -141,7 +154,7 @@ export const subAdminRouter = router({
       const db = await getDb();
 
       // Only client_owner can update sub-admins
-      if (ctx.user.role !== "client_owner") {
+      if (ctx.user.role !== "client_owner" && ctx.user.role !== "client") {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only client owners can update sub-admins",
@@ -164,11 +177,26 @@ export const subAdminRouter = router({
       // Prepare update data
       const updateData: any = {};
       if (input.name) updateData.name = input.name;
+      if (input.username || input.email) {
+        const [conflictingUser] = await db.select().from(users).where(and(
+          ne(users.id, input.id),
+          or(
+            input.username ? eq(users.username, input.username) : sql`false`,
+            input.email ? eq(users.email, input.email) : sql`false`,
+          ),
+        )).limit(1);
+        if (conflictingUser) {
+          throw new TRPCError({ code: "CONFLICT", message: "اسم المستخدم أو البريد الإلكتروني مستخدم بالفعل" });
+        }
+      }
+      if (input.username) updateData.username = input.username;
       if (input.email) updateData.email = input.email;
       if (input.role) updateData.role = input.role;
       if (input.status) updateData.status = input.status;
       if (input.password) {
-        updateData.password = await bcrypt.hash(input.password, 10);
+        updateData.passwordHash = await bcrypt.hash(input.password, 10);
+        updateData.loginMethod = "traditional";
+        updateData.emailVerified = true;
       }
 
       // Update sub-admin
@@ -199,7 +227,7 @@ export const subAdminRouter = router({
       const db = await getDb();
 
       // Only client_owner can delete sub-admins
-      if (ctx.user.role !== "client_owner") {
+      if (ctx.user.role !== "client_owner" && ctx.user.role !== "client") {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Only client owners can delete sub-admins",

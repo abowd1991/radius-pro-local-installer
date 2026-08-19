@@ -297,7 +297,7 @@ function DashboardLayoutContent({
 
   useEffect(() => {
     if (!user || permissionsLoading || !isClientManagedRole(user.role)) return;
-    if (!isMenuPathAllowed(location, allowedMenuItems)) {
+    if (!isMenuPathAllowed(location, allowedMenuItems, user.role)) {
       setLocation("/dashboard");
     }
   }, [allowedMenuItems, location, permissionsLoading, setLocation, user]);
@@ -626,10 +626,12 @@ function DashboardLayoutContent({
                   <UserCircle className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
                   <span>{t("auth.profile")}</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setLocation("/settings")} className="cursor-pointer">
-                  <Settings className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
-                  <span>{t("auth.settings")}</span>
-                </DropdownMenuItem>
+                {user?.role !== "client_staff" || allowedMenuItems?.includes("/settings") ? (
+                  <DropdownMenuItem onClick={() => setLocation("/settings")} className="cursor-pointer">
+                    <Settings className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
+                    <span>{t("auth.settings")}</span>
+                  </DropdownMenuItem>
+                ) : null}
                 <DropdownMenuSeparator />
                 <div className="px-2 py-1.5 flex gap-1">
                   <Button

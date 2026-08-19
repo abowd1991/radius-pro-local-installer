@@ -288,7 +288,7 @@ function CampaignStatsPanel({ campaignId }: { campaignId: number }) {
                   cx="50%"
                   cy="50%"
                   outerRadius={65}
-                  label={({ label, percent }) => `${label} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }) => `${name ?? ''} ${((percent ?? 0) * 100).toFixed(0)}%`}
                   labelLine={false}
                 >
                   {topCategories.map((_: { label: string; icon: string | null; count: number }, i: number) => (

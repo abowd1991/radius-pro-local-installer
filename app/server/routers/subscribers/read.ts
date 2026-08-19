@@ -42,11 +42,17 @@ import { isAdmin } from "../../_core/roles";
 import { sessionRepository } from '../../domains/accounting/repositories/SessionRepository';
 
 // Local helper (mirrors the one in routers.ts)
+function hasEffectiveSubscriberOwnership(user: any, subscriber: { ownerId: number | null; createdBy: number | null }): boolean {
+  if (isAdmin(user.role)) return true;
+  const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(user));
+  return subscriber.ownerId === effectiveOwnerId || subscriber.createdBy === effectiveOwnerId;
+}
 
 
 export const list = resellerProcedure.query(async ({ ctx }) => {
-    const subscribers = await db.getSubscribersByOwner(ctx.user.id);
-    const stats = await db.getSubscriberStats(ctx.user.id);
+    const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+    const subscribers = await db.getSubscribersByOwner(effectiveOwnerId);
+    const stats = await db.getSubscriberStats(effectiveOwnerId);
     return { subscribers, stats };
   });
 
@@ -61,7 +67,8 @@ export const get = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (subscriber.subscriber.ownerId !== effectiveOwnerId && subscriber.subscriber.createdBy !== effectiveOwnerId && !isAdmin(ctx.user.role)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
       return subscriber;
@@ -78,7 +85,8 @@ export const history = resellerProcedure
         throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
       }
       // Check ownership
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (subscriber.subscriber.ownerId !== effectiveOwnerId && subscriber.subscriber.createdBy !== effectiveOwnerId && !isAdmin(ctx.user.role)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
 
@@ -125,7 +133,7 @@ export const getCredentials = resellerProcedure
     .query(async ({ input, ctx }) => {
       const subscriber = await db.getSubscriberById(input.id);
       if (!subscriber) throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
       const username = subscriber.subscriber.username;
@@ -170,7 +178,7 @@ export const getPaymentHistory = resellerProcedure
     .query(async ({ input, ctx }) => {
       const subscriber = await db.getSubscriberById(input.id);
       if (!subscriber) throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
       return db.getSubscriptionHistory(input.id);
@@ -183,7 +191,7 @@ export const getActivityLog = resellerProcedure
     .query(async ({ input, ctx }) => {
       const subscriber = await db.getSubscriberById(input.subscriberId);
       if (!subscriber) throw new TRPCError({ code: 'NOT_FOUND', message: 'المشترك غير موجود' });
-      if (subscriber.subscriber.ownerId !== ctx.user.id && subscriber.subscriber.createdBy !== ctx.user.id && !isAdmin(ctx.user.role)) {
+      if (!hasEffectiveSubscriberOwnership(ctx.user, subscriber.subscriber)) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'غير مصرح' });
       }
       const { getAuditLogs } = await import("../../services/auditLogService");

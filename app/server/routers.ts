@@ -131,6 +131,8 @@ import { speedSchedulesRouter } from './routers/speedSchedules';
 import { feedbackRouter } from './routers/feedback.js';
 import { timezoneRouter } from "./routers/timezone";
 import { vpnManagementV2Router } from "./routers/vpnManagementV2";
+import { staffPermissionsRouter } from "./routers/staffPermissions";
+import { recycleBinRouter } from "./routers/recycleBin";
 
 const authRouter = router({
   me: publicProcedure.query(opts => {
@@ -352,6 +354,15 @@ const authRouter = router({
       return { success: true, message: "Password reset successful! You can now login." };
     }),
 
+  // Returns the official client account profile for tenant-scoped settings.
+  // client_staff sees the parent client data only when /settings is explicitly delegated.
+  getSettingsProfile: protectedProcedure.query(async ({ ctx }) => {
+    const ownerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+    const profile = await db.getUserById(ownerId);
+    if (!profile) throw new TRPCError({ code: "NOT_FOUND", message: "لم يتم العثور على حساب العميل" });
+    return profile;
+  }),
+
   // Update profile
   updateProfile: protectedProcedure
     .input(z.object({
@@ -361,7 +372,8 @@ const authRouter = router({
       address: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const result = await db.updateUser(ctx.user.id, input);
+      const ownerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      const result = await db.updateUser(ownerId, input);
       return { success: true, user: result };
     }),
 
@@ -371,7 +383,8 @@ const authRouter = router({
       avatarUrl: z.string().url("Invalid URL"),
     }))
     .mutation(async ({ input, ctx }) => {
-      const result = await db.updateUser(ctx.user.id, { avatarUrl: input.avatarUrl });
+      const ownerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      const result = await db.updateUser(ownerId, { avatarUrl: input.avatarUrl });
       return { success: true, avatarUrl: input.avatarUrl };
     }),
 
@@ -383,7 +396,8 @@ const authRouter = router({
     .mutation(async ({ input, ctx }) => {
       const drizzleDb = await getDb();
       if (!drizzleDb) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
-      await drizzleDb.update(users).set({ preferredCurrency: input.preferredCurrency }).where(eq(users.id, ctx.user.id));
+      const ownerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      await drizzleDb.update(users).set({ preferredCurrency: input.preferredCurrency }).where(eq(users.id, ownerId));
       return { success: true, preferredCurrency: input.preferredCurrency };
     }),
 
@@ -3358,6 +3372,8 @@ export const appRouter = router({
   auth: authRouter,
   users: usersRouter,
   subAdmin: subAdminRouter,
+  staffPermissions: staffPermissionsRouter,
+  recycleBin: recycleBinRouter,
   defaultPlans: defaultPlansRouter,
   plans: plansRouter,
   plansNas: plansNasRouter,

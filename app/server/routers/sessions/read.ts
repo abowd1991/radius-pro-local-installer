@@ -46,7 +46,7 @@ import { isAdmin } from "../../_core/roles";
 
 
 export const list = protectedProcedure.query(async ({ ctx }) => {
-    const ownerId = isAdmin(ctx.user.role) ? null : ctx.user.id;
+    const ownerId = isAdmin(ctx.user.role) ? null : getEffectiveOwnerId(getTenantContext(ctx.user));
     return sessionRepository.findActiveViews(ownerId);
   });
 
@@ -63,7 +63,7 @@ export const getByUsername = protectedProcedure
     .query(async ({ ctx, input }) => {
       const sessions = await sessionRepository.findByUsername(input.username);
       if (isAdmin(ctx.user.role)) return sessions;
-      const ownerNasDevices = await nasDb.getNasDevicesByOwner(ctx.user.id);
+      const ownerNasDevices = await nasDb.getNasDevicesByOwner(getEffectiveOwnerId(getTenantContext(ctx.user)));
       const ownerNasIps = ownerNasDevices.map((n: any) => n.nasname);
       return sessions.filter((s: any) => ownerNasIps.includes(s.nasIp));
     });
@@ -75,7 +75,7 @@ export const getByNas = protectedProcedure
       // Check NAS ownership
       const nas = await nasDb.getNasByIp(input.nasIp);
       if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS not found" });
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+      if (!isAdmin(ctx.user.role) && nas.ownerId !== getEffectiveOwnerId(getTenantContext(ctx.user))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       return (await sessionRepository.findAll()).filter((session) => session.nasIp === input.nasIp);
@@ -86,9 +86,19 @@ export const getVpnSessions = superAdminProcedure.query(async () => {
     return vpnApi.getVpnSessions();
   });
 
-  // Disconnect VPN session
-export const getStats = superAdminProcedure.query(async () => {
-    return sessionRepository.getActiveStats();
+  // إحصاءات المتصلين: مدير النظام يرى الكل، والموظف المفوض يرى حساب العميل الأصل فقط.
+  export const getStats = protectedProcedure.query(async ({ ctx }) => {
+    if (isAdmin(ctx.user.role)) return sessionRepository.getActiveStats();
+    const sessions = await sessionRepository.findActiveViews(getEffectiveOwnerId(getTenantContext(ctx.user)));
+    return sessions.reduce(
+      (stats, session) => ({
+        activeSessionsCount: stats.activeSessionsCount + 1,
+        totalSessionTime: stats.totalSessionTime + Number(session.sessionTime ?? 0),
+        totalInputOctets: stats.totalInputOctets + Number(session.inputOctets ?? 0),
+        totalOutputOctets: stats.totalOutputOctets + Number(session.outputOctets ?? 0),
+      }),
+      { activeSessionsCount: 0, totalSessionTime: 0, totalInputOctets: 0, totalOutputOctets: 0 },
+    );
   });
 
   // Generate MikroTik configuration script
@@ -98,7 +108,8 @@ export const getUserUsage = protectedProcedure
       // Check card ownership for non-admins
       if (!isAdmin(ctx.user.role)) {
         const card = await voucherRepository.findByUsername(input.username);
-        if (!card || (card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id)) {
+        const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+        if (!card || (card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
       }
@@ -112,7 +123,8 @@ export const getTimeBalance = protectedProcedure
       // Check card ownership for non-admins
       if (!isAdmin(ctx.user.role)) {
         const card = await voucherRepository.findByUsername(input.username);
-        if (!card || (card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id)) {
+        const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+        if (!card || (card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId)) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
       }
@@ -153,7 +165,8 @@ export const getCardLookup = protectedProcedure
 
       // Check ownership for non-admins
       if (!isAdmin(ctx.user.role)) {
-        if (card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id) {
+        const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+        if (card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId) {
           throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
         }
       }

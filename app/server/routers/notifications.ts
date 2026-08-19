@@ -12,8 +12,10 @@ import { testChannelConnection } from "../services/notificationService";
 import { TRPCError } from "@trpc/server";
 import { isAdmin } from "../_core/roles";
 import { UnsafeExternalUrlError, assertSafeExternalHttpsUrl } from "../security/externalUrlPolicy";
+import { getEffectiveOwnerId, getTenantContext } from "../tenant-isolation";
 
 const channelSchema = z.enum(['telegram', 'whatsapp', 'sms']);
+const getNotificationOwnerId = (user: any) => getEffectiveOwnerId(getTenantContext(user));
 
 // ============================================================================
 // Get channel settings for current owner
@@ -24,7 +26,7 @@ const getChannelSettings = protectedProcedure
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
 
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
 
     const [settings] = await db
       .select()
@@ -81,7 +83,7 @@ const saveChannelSettings = protectedProcedure
       }
     }
 
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
 
     const [existing] = await db
       .select({ id: notificationChannels.id })
@@ -181,7 +183,7 @@ const savePreferences = protectedProcedure
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
 
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
 
     const [existing] = await db
       .select({ id: notificationPreferences.id })
@@ -266,7 +268,7 @@ const getSmsAdminStatus = protectedProcedure
     const db = await getDb();
     if (!db) return { adminEnabled: false };
 
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
 
     const [settings] = await db
       .select({ smsAdminEnabled: notificationChannels.smsAdminEnabled })
@@ -338,7 +340,7 @@ const getCustomMessages = protectedProcedure
   .query(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     const [row] = await db
       .select({ customMessages: notificationChannels.customMessages })
       .from(notificationChannels)
@@ -365,7 +367,7 @@ const saveCustomMessages = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     const [existing] = await db
       .select({ id: notificationChannels.id })
       .from(notificationChannels)
@@ -396,7 +398,7 @@ const getReminderHours = protectedProcedure
   .query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     // Get from telegram channel (shared setting)
     const [row] = await db
       .select({ reminderHoursManualCard: notificationChannels.reminderHoursManualCard })
@@ -413,7 +415,7 @@ const saveReminderHours = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     // Update all channels for this owner (telegram + sms)
     for (const channel of ['telegram', 'sms'] as const) {
       const [existing] = await db
@@ -446,7 +448,7 @@ const getSmsCustomMessages = protectedProcedure
   .query(async ({ ctx }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     const [row] = await db
       .select({ customSmsMessages: notificationChannels.customSmsMessages })
       .from(notificationChannels)
@@ -467,7 +469,7 @@ const saveSmsCustomMessages = protectedProcedure
   .mutation(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR' });
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     const [existing] = await db
       .select({ id: notificationChannels.id })
       .from(notificationChannels)
@@ -496,7 +498,7 @@ const saveSmsCustomMessages = protectedProcedure
 // ============================================================================
 const checkSmsBalance = protectedProcedure
   .query(async ({ ctx }) => {
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     const { getOwnerSmsCredentials, checkBalance, checkBalanceCustomApi } = await import('../services/tweetsmsService');
 
     // جلب credentials الخاصة بالعميل
@@ -528,7 +530,7 @@ const checkSmsBalance = protectedProcedure
 const sendTestSms = protectedProcedure
   .input(z.object({ phone: z.string().min(7, 'رقم الهاتف غير صحيح') }))
   .mutation(async ({ ctx, input }) => {
-    const ownerId = ctx.user.ownerId ?? ctx.user.id;
+    const ownerId = getNotificationOwnerId(ctx.user);
     const { getOwnerSmsCredentials, sendSms } = await import('../services/tweetsmsService');
 
     const ownerCreds = await getOwnerSmsCredentials(ownerId);

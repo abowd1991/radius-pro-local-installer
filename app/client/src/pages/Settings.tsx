@@ -58,6 +58,10 @@ import BackupManagement from "./BackupManagement";
 export default function Settings() {
   const { user, refresh: refetchUser } = useAuth();
   const { t, language, direction, setLanguage } = useLanguage();
+  const { data: settingsProfile, refetch: refetchSettingsProfile } = trpc.auth.getSettingsProfile.useQuery(undefined, {
+    enabled: Boolean(user),
+  });
+  const profileSource = settingsProfile ?? user;
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [pushNotifications, setPushNotifications] = useState(true);
   const [invoiceNotifications, setInvoiceNotifications] = useState(true);
@@ -80,7 +84,7 @@ export default function Settings() {
   const [passwordResetLoading, setPasswordResetLoading] = useState(false);
   
   // Currency state
-  const [selectedCurrency, setSelectedCurrency] = useState<string>((user as any)?.preferredCurrency || 'USD');
+  const [selectedCurrency, setSelectedCurrency] = useState<string>((profileSource as any)?.preferredCurrency || 'USD');
   const [currencyLoading, setCurrencyLoading] = useState(false);
   const [selectedTimezone, setSelectedTimezone] = useState<string>('Asia/Gaza');
   const [timezoneLoading, setTimezoneLoading] = useState(false);
@@ -106,7 +110,7 @@ export default function Settings() {
   const utils = trpc.useUtils();
   const { data: smsChannelData, refetch: refetchSmsChannel } = trpc.notificationChannels.getChannelSettings.useQuery(
     { channel: 'sms' },
-    { enabled: user?.role === 'owner' || user?.role === 'super_admin' }
+    { enabled: Boolean(user) }
   );
 
   // Initialize SMS form from DB
@@ -178,19 +182,22 @@ export default function Settings() {
   const [radiusVpnIp, setRadiusVpnIp] = useState('192.168.30.1');
   const [vpnServerAddress, setVpnServerAddress] = useState('');
   const [radiusSettingsLoading, setRadiusSettingsLoading] = useState(false);
+  const [firstNasMonthlyPrice, setFirstNasMonthlyPrice] = useState('15');
+  const [additionalNasMonthlyPrice, setAdditionalNasMonthlyPrice] = useState('5');
+  const [nasBillingLoading, setNasBillingLoading] = useState(false);
   
   // Load RADIUS settings
   const { data: systemSettings, refetch: refetchSettings } = trpc.settings.getAll.useQuery();
   
   // Initialize profile form with user data
   useEffect(() => {
-    if (user) {
-      setProfileName(user.name || '');
-      setProfilePhone(user.phone || '');
-      setProfileAddress(user.address || '');
-      setSelectedCurrency((user as any).preferredCurrency || 'USD');
+    if (profileSource) {
+      setProfileName(profileSource.name || '');
+      setProfilePhone(profileSource.phone || '');
+      setProfileAddress(profileSource.address || '');
+      setSelectedCurrency((profileSource as any).preferredCurrency || 'USD');
     }
-  }, [user]);
+  }, [profileSource]);
   
   // Update local state when settings are loaded
   useEffect(() => {
@@ -199,6 +206,10 @@ export default function Settings() {
       setPortForwardingPublicHost(systemSettings.port_forwarding_public_host || '');
       setRadiusVpnIp(systemSettings.radius_server_vpn_ip || '192.168.30.1');
       setVpnServerAddress(systemSettings.vpn_server_address || '');
+      const firstDaily = Number(systemSettings.nas_daily_rate);
+      const additionalDaily = Number(systemSettings.nas_additional_daily_rate);
+      setFirstNasMonthlyPrice(Number.isFinite(firstDaily) && firstDaily > 0 ? String(Number((firstDaily * 30).toFixed(2))) : '15');
+      setAdditionalNasMonthlyPrice(Number.isFinite(additionalDaily) && additionalDaily >= 0 ? String(Number((additionalDaily * 30).toFixed(2))) : '5');
     }
   }, [systemSettings]);
   
@@ -240,6 +251,7 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
     onSuccess: () => {
       toast.success(language === 'ar' ? 'تم تحديث العملة المفضلة' : 'Preferred currency updated');
       refetchUser();
+      refetchSettingsProfile();
     },
     onError: (error: { message: string }) => {
       toast.error(error.message);
@@ -294,6 +306,7 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
     onSuccess: () => {
       toast.success(language === 'ar' ? 'تم تحديث الملف الشخصي' : 'Profile updated');
       refetchUser();
+      refetchSettingsProfile();
     },
     onError: (error: { message: string }) => {
       toast.error(error.message);
@@ -304,6 +317,7 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
     onSuccess: () => {
       toast.success(language === 'ar' ? 'تم تحديث الصورة الشخصية' : 'Avatar updated');
       refetchUser();
+      refetchSettingsProfile();
     },
     onError: (error: { message: string }) => {
       toast.error(error.message);
@@ -343,6 +357,30 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
       await updateSettingMutation.mutateAsync({ key: 'vpn_server_address', value: vpnServerAddress });
     } finally {
       setRadiusSettingsLoading(false);
+    }
+  };
+
+  const handleSaveNasBillingSettings = async () => {
+    const firstMonthly = Number(firstNasMonthlyPrice);
+    const additionalMonthly = Number(additionalNasMonthlyPrice);
+    if (!Number.isFinite(firstMonthly) || firstMonthly <= 0 || !Number.isFinite(additionalMonthly) || additionalMonthly < 0) {
+      toast.error(language === 'ar' ? 'أدخل أسعاراً شهرية صحيحة وغير سالبة' : 'Enter valid non-negative monthly prices');
+      return;
+    }
+    setNasBillingLoading(true);
+    try {
+      await updateSettingMutation.mutateAsync({
+        key: 'nas_daily_rate',
+        value: (firstMonthly / 30).toFixed(8),
+        description: 'السعر اليومي للـ NAS الأول، محسوب من السعر الشهري الذي يحدده المدير',
+      });
+      await updateSettingMutation.mutateAsync({
+        key: 'nas_additional_daily_rate',
+        value: (additionalMonthly / 30).toFixed(8),
+        description: 'السعر اليومي لكل NAS إضافي، محسوب من السعر الشهري الذي يحدده المدير',
+      });
+    } finally {
+      setNasBillingLoading(false);
     }
   };
 
@@ -452,6 +490,12 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
             </TabsTrigger>
           )}
           {(user?.role === 'owner' || user?.role === 'super_admin') && (
+            <TabsTrigger value="nas-billing">
+              <DollarSign className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
+              {language === "ar" ? "فوترة NAS" : "NAS Billing"}
+            </TabsTrigger>
+          )}
+          {(user?.role === 'owner' || user?.role === 'super_admin') && (
             <TabsTrigger value="sessions">
               <Timer className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
               {language === "ar" ? "الجلسات" : "Sessions"}
@@ -484,10 +528,6 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
               {language === "ar" ? "الموقع" : "Site"}
             </TabsTrigger>
           )}
-          <TabsTrigger value="channels">
-            <Send className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
-            {language === "ar" ? "قنوات الإشعارات" : "Channels"}
-          </TabsTrigger>
           {(user?.role === 'owner' || user?.role === 'super_admin') && (
             <TabsTrigger value="backups">
               <Server className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
@@ -501,19 +541,6 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
             <SiteSettings />
           </TabsContent>
         )}
-
-        <TabsContent value="channels" className="space-y-6">
-          <Tabs defaultValue="telegram" className="space-y-5">
-            <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
-              <TabsTrigger value="telegram">Telegram</TabsTrigger>
-              <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
-              <TabsTrigger value="sms-channel">SMS</TabsTrigger>
-            </TabsList>
-            <TabsContent value="telegram"><TelegramNotifications /></TabsContent>
-            <TabsContent value="whatsapp"><WhatsAppNotifications /></TabsContent>
-            <TabsContent value="sms-channel"><SmsNotifications /></TabsContent>
-          </Tabs>
-        </TabsContent>
 
         {(user?.role === 'owner' || user?.role === 'super_admin') && (
           <TabsContent value="backups" className="space-y-6">
@@ -536,8 +563,8 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
                 <div className="flex items-center gap-6">
                   <div className="relative">
                     <div className="h-24 w-24 rounded-full bg-muted flex items-center justify-center overflow-hidden border-2 border-border">
-                      {user?.avatarUrl ? (
-                        <img src={user.avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                      {profileSource?.avatarUrl ? (
+                        <img src={profileSource.avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
                       ) : (
                         <User className="h-12 w-12 text-muted-foreground" />
                       )}
@@ -562,8 +589,8 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
                     />
                   </div>
                   <div className="space-y-1">
-                    <p className="text-sm font-medium">{user?.name || user?.username}</p>
-                    <p className="text-sm text-muted-foreground">{user?.email}</p>
+                    <p className="text-sm font-medium">{profileSource?.name || profileSource?.username}</p>
+                    <p className="text-sm text-muted-foreground">{profileSource?.email}</p>
                     <Button
                       variant="outline"
                       size="sm"
@@ -599,7 +626,7 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="email">{t("common.email")}</Label>
-                      <Input id="email" type="email" value={user?.email || ""} disabled />
+                      <Input id="email" type="email" value={profileSource?.email || ""} disabled />
                     </div>
                   </div>
                   <div className="grid gap-4 md:grid-cols-2">
@@ -614,7 +641,7 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="company">{language === "ar" ? "اسم الشركة" : "Company Name"}</Label>
-                      <Input id="company" disabled placeholder={language === "ar" ? "قريباً" : "Coming soon"} />
+                      <Input id="company" value={(profileSource as any)?.companyName || ""} disabled placeholder={language === "ar" ? "غير محدد" : "Not set"} />
                     </div>
                   </div>
                   <div className="space-y-2">
@@ -638,6 +665,42 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
             </Card>
           </div>
         </TabsContent>
+
+        {(user?.role === 'owner' || user?.role === 'super_admin') && (
+          <TabsContent value="nas-billing">
+            <Card>
+              <CardHeader>
+                <CardTitle>{language === 'ar' ? 'تسعير اشتراكات NAS' : 'NAS Subscription Pricing'}</CardTitle>
+                <CardDescription>
+                  {language === 'ar'
+                    ? 'حدد السعر الشهري للـ NAS الأول والسعر الشهري لكل NAS إضافي. يحسب النظام الخصم اليومي تلقائياً.'
+                    : 'Set monthly prices for the first NAS and each additional NAS. Daily billing is calculated automatically.'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="first-nas-monthly-price">{language === 'ar' ? 'السعر الشهري للـ NAS الأول (USD)' : 'First NAS monthly price (USD)'}</Label>
+                    <Input id="first-nas-monthly-price" type="number" min="0.01" step="0.01" value={firstNasMonthlyPrice} onChange={(event) => setFirstNasMonthlyPrice(event.target.value)} dir="ltr" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="additional-nas-monthly-price">{language === 'ar' ? 'السعر الشهري لكل NAS إضافي (USD)' : 'Each additional NAS monthly price (USD)'}</Label>
+                    <Input id="additional-nas-monthly-price" type="number" min="0" step="0.01" value={additionalNasMonthlyPrice} onChange={(event) => setAdditionalNasMonthlyPrice(event.target.value)} dir="ltr" />
+                  </div>
+                </div>
+                <p className="rounded-md bg-muted p-3 text-sm text-muted-foreground">
+                  {language === 'ar'
+                    ? `المثال الحالي: NAS الأول ${firstNasMonthlyPrice || '0'}$ شهرياً، وكل NAS إضافي ${additionalNasMonthlyPrice || '0'}$ شهرياً.`
+                    : `Current example: first NAS ${firstNasMonthlyPrice || '0'}$/month, each additional NAS ${additionalNasMonthlyPrice || '0'}$/month.`}
+                </p>
+                <Button onClick={handleSaveNasBillingSettings} disabled={nasBillingLoading}>
+                  {nasBillingLoading ? <Loader2 className={`h-4 w-4 animate-spin ${direction === 'rtl' ? 'ml-2' : 'mr-2'}`} /> : <Save className={`h-4 w-4 ${direction === 'rtl' ? 'ml-2' : 'mr-2'}`} />}
+                  {language === 'ar' ? 'حفظ تسعير NAS' : 'Save NAS pricing'}
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
 
         {/* RADIUS Tab - only visible to owner/super_admin */}
         {(user?.role === 'owner' || user?.role === 'super_admin') && (
@@ -837,7 +900,7 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
         )}
 
         {/* Notifications Tab */}
-        <TabsContent value="notifications">
+        <TabsContent value="notifications" className="space-y-6">
           <Card>
             <CardHeader>
               <CardTitle>{language === "ar" ? "إعدادات الإشعارات" : "Notification Settings"}</CardTitle>
@@ -889,6 +952,29 @@ const updateCurrencyMutation = trpc.auth.updateCurrency.useMutation({
                 <Save className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
                 {t("common.save")}
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{language === "ar" ? "قنوات الإشعارات" : "Notification Channels"}</CardTitle>
+              <CardDescription>
+                {language === "ar"
+                  ? "إعداد قنوات Telegram وWhatsApp وSMS الخاصة بحسابك"
+                  : "Configure Telegram, WhatsApp, and SMS channels for your account"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Tabs defaultValue="telegram" className="space-y-5">
+                <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 bg-muted/50 p-1">
+                  <TabsTrigger value="telegram">Telegram</TabsTrigger>
+                  <TabsTrigger value="whatsapp">WhatsApp</TabsTrigger>
+                  <TabsTrigger value="sms-channel">SMS</TabsTrigger>
+                </TabsList>
+                <TabsContent value="telegram"><TelegramNotifications /></TabsContent>
+                <TabsContent value="whatsapp"><WhatsAppNotifications /></TabsContent>
+                <TabsContent value="sms-channel"><SmsNotifications /></TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         </TabsContent>

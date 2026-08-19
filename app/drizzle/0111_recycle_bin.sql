@@ -1,0 +1,21 @@
+CREATE TABLE `recycle_bin_items` (
+  `id` varchar(36) NOT NULL,
+  `entityType` varchar(50) NOT NULL,
+  `entityId` varchar(100) NOT NULL,
+  `displayName` varchar(255) NOT NULL,
+  `batchId` varchar(50),
+  `ownerId` int NOT NULL,
+  `resellerId` int,
+  `deletedBy` int NOT NULL,
+  `deletedByRole` varchar(50) NOT NULL,
+  `snapshot` json NOT NULL,
+  `deletedAt` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `purgeAt` timestamp NOT NULL,
+  `status` enum('deleted','restoring','purging') NOT NULL DEFAULT 'deleted',
+  PRIMARY KEY (`id`),
+  KEY `recycle_bin_owner_deleted_idx` (`ownerId`,`deletedAt`),
+  KEY `recycle_bin_reseller_deleted_idx` (`resellerId`,`deletedAt`),
+  KEY `recycle_bin_owner_type_idx` (`ownerId`,`entityType`),
+  KEY `recycle_bin_purge_idx` (`status`,`purgeAt`),
+  KEY `recycle_bin_entity_idx` (`entityType`,`entityId`)
+);

@@ -4,6 +4,7 @@ import { getDb } from "../db";
 import { sql } from "drizzle-orm";
 import { cache } from "../_core/cache";
 import { isAdmin as isAdminRole } from "../_core/roles";
+import { getEffectiveOwnerId, getTenantContext } from "../tenant-isolation";
 
 const analyticsRouter = router({
   // Revenue trend - last N days
@@ -14,6 +15,7 @@ const analyticsRouter = router({
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       const { days } = input;
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       
       const endDate = new Date();
       const startDate = new Date();
@@ -46,7 +48,7 @@ const analyticsRouter = router({
           WHERE createdAt >= ${startStr}
             AND createdAt <= ${endStr}
             AND status = 'paid'
-            AND userId = ${ctx.user.id}
+            AND userId = ${effectiveOwnerId}
           GROUP BY DATE(createdAt)
           ORDER BY date ASC
         `);
@@ -62,8 +64,9 @@ const analyticsRouter = router({
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       const { days } = input;
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
 
-      const cacheKey = `analytics:sessionsTrend:${ctx.user.id}:${days}`;
+      const cacheKey = `analytics:sessionsTrend:${effectiveOwnerId}:${days}`;
       const cached = cache.get<any>(cacheKey);
       if (cached) return cached;
       
@@ -105,7 +108,7 @@ const analyticsRouter = router({
           FROM radacct
           WHERE acctstarttime >= ${startStr}
             AND acctstarttime < ${endStr}
-            AND username IN (SELECT username FROM radius_cards WHERE createdBy = ${ctx.user.id})
+            AND username IN (SELECT username FROM radius_cards WHERE createdBy = ${effectiveOwnerId})
           GROUP BY DATE(acctstarttime)
           ORDER BY date ASC
         `);
@@ -118,7 +121,8 @@ const analyticsRouter = router({
   // NAS health status
   nasHealth: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
-    const cacheKey = `analytics:nasHealth:${ctx.user.id}`;
+    const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+    const cacheKey = `analytics:nasHealth:${effectiveOwnerId}`;
     const cached = cache.get<any>(cacheKey);
     if (cached) return cached;
       const isAdmin = isAdminRole(ctx.user.role);
@@ -137,9 +141,9 @@ const analyticsRouter = router({
         SELECT 
           status,
           COUNT(*) as count
-        FROM nas
-        WHERE ownerId = ${ctx.user.id}
-        GROUP BY status
+          FROM nas
+          WHERE ownerId = ${effectiveOwnerId}
+          GROUP BY status
       `);
     }
 
@@ -150,6 +154,7 @@ const analyticsRouter = router({
   // Dashboard stats summary
   dashboardStats: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
+    const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
     
     const endDate = new Date();
     const startDate = new Date();
@@ -178,14 +183,14 @@ const analyticsRouter = router({
           SELECT COALESCE(SUM(total), 0) as total_revenue
           FROM invoices
           WHERE status = 'paid'
-            AND userId = ${ctx.user.id}
+            AND userId = ${effectiveOwnerId}
         `),
         db.execute(sql`
           SELECT COALESCE(SUM(total), 0) as monthly_revenue
           FROM invoices
           WHERE status = 'paid'
             AND createdAt >= ${startStr}
-            AND userId = ${ctx.user.id}
+            AND userId = ${effectiveOwnerId}
         `),
       ]);
     }
@@ -491,7 +496,7 @@ const analyticsRouter = router({
     .query(async ({ ctx, input }) => {
       const db = await getDb();
       const { days, hours } = input;
-      const userId = ctx.user.id;
+      const userId = getEffectiveOwnerId(getTenantContext(ctx.user));
 
       const endDate = new Date();
       const startDate = new Date();

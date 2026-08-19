@@ -12,9 +12,10 @@ import { useAuth } from "@/_core/hooks/useAuth";
  */
 export function SubscriptionBanner() {
   const { user } = useAuth();
+  const isClientStaff = user?.role === 'client_staff';
 
   // جلب رصيد المحفظة
-  const { data: wallet, isLoading } = trpc.wallet.getMyWallet.useQuery(undefined, {
+  const { data: wallet, isLoading, isError } = trpc.wallet.getMyWallet.useQuery(undefined, {
     enabled: !!user && user.role !== 'super_admin' && user.role !== 'owner',
     staleTime: 30000, // تحديث كل 30 ثانية
     refetchInterval: 60000, // إعادة جلب كل دقيقة
@@ -25,8 +26,9 @@ export function SubscriptionBanner() {
     return null;
   }
 
-  // أثناء التحميل لا نعرض شيئاً لتجنب الوميض
-  if (isLoading) {
+  // لا يجوز تحويل تعذر جلب المحفظة إلى حساب معلق. نعرض البانر فقط حين تصل
+  // بيانات محفظة مؤكدة ورصيدها صفر فعلاً.
+  if (isLoading || isError || !wallet) {
     return null;
   }
 
@@ -45,13 +47,13 @@ export function SubscriptionBanner() {
         <div className="flex items-center gap-2">
           <XCircle className="h-5 w-5" />
           <span className="text-base font-bold">
-            حسابك مجمّد - الاشتراك منتهي أو معلق
+            {isClientStaff ? 'حساب العميل الرسمي موقوف أو معلق' : 'حسابك مجمّد - الاشتراك منتهي أو معلق'}
           </span>
         </div>
         <p className="text-sm text-center max-w-lg">
-          لا يمكنك إنشاء أو تعديل أي بيانات حالياً. جميع بياناتك محفوظة ولن يتم حذفها.
+          {isClientStaff ? 'لا يمكنك إنشاء أو تعديل أي بيانات حالياً لأن حساب العميل الذي تتبعه متوقف.' : 'لا يمكنك إنشاء أو تعديل أي بيانات حالياً. جميع بياناتك محفوظة ولن يتم حذفها.'}
           <br />
-          للتجديد، يرجى التواصل مع الدعم الفني أو إرسال تذكرة دعم.
+          {isClientStaff ? 'يرجى التواصل مع مدير الحساب أو الدعم الفني لتجديد حساب العميل.' : 'للتجديد، يرجى التواصل مع الدعم الفني أو إرسال تذكرة دعم.'}
         </p>
         <div className="flex gap-2 mt-2">
           <a

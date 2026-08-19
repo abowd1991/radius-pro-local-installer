@@ -86,11 +86,12 @@ export const getById = protectedProcedure
   // - Phase 2 (background): When VPN connects, read actual IP, create DHCP reservation, update nasname
 export const getSetupScripts = protectedProcedure
     .input(z.object({ id: z.number() }))
-    .query(async ({ ctx, input }) => {
-      const nas = await nasDb.getNasById(input.id);
-      if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
-      // Check ownership for non-super_admin
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+	    .query(async ({ ctx, input }) => {
+	      const nas = await nasDb.getNasById(input.id);
+	      if (!nas) throw new TRPCError({ code: "NOT_FOUND", message: "NAS device not found" });
+	      // Check ownership against the official client account for delegated staff.
+	      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+	      if (!isAdmin(ctx.user.role) && nas.ownerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       
@@ -320,11 +321,11 @@ export const getSetupScripts = protectedProcedure
   // Update NAS - check ownership (requires active subscription)
 export const getProvisioningStatus = protectedProcedure
     .input(z.object({ nasId: z.number() }))
-    .query(async ({ ctx, input }) => {
-      const nas = await nasDb.getNasById(input.nasId);
-      if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
-      
-      if (!isAdmin(ctx.user.role) && nas.ownerId !== ctx.user.id) {
+	    .query(async ({ ctx, input }) => {
+	      const nas = await nasDb.getNasById(input.nasId);
+	      if (!nas) throw new TRPCError({ code: 'NOT_FOUND', message: 'NAS not found' });
+	      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+	      if (!isAdmin(ctx.user.role) && nas.ownerId !== effectiveOwnerId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
       
@@ -339,18 +340,18 @@ export const getProvisioningStatus = protectedProcedure
       };
     });
 
-  // Retry provisioning for a NAS
-export const listWithProvisioningStatus = protectedProcedure
-    .query(async ({ ctx }) => {
-      const db = await getDb();
-      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
-      
-      let devices;
-      if (isAdmin(ctx.user.role)) {
-        devices = await db.select().from(nasDevices);
-      } else {
-        devices = await db.select().from(nasDevices).where(eq(nasDevices.ownerId, ctx.user.id));
-      }
+	  // Retry provisioning for a NAS
+	export const listWithProvisioningStatus = protectedProcedure
+	    .query(async ({ ctx }) => {
+	      const db = await getDb();
+	      if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+	      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+	      let devices;
+	      if (isAdmin(ctx.user.role)) {
+	        devices = await db.select().from(nasDevices);
+	      } else {
+	        devices = await db.select().from(nasDevices).where(eq(nasDevices.ownerId, effectiveOwnerId));
+	      }
       
       return devices.map((nas: any) => ({
         ...nas,

@@ -1264,6 +1264,37 @@ export const auditLogs = mysqlTable("audit_logs", {
 export type AuditLog = typeof auditLogs.$inferSelect;
 export type InsertAuditLog = typeof auditLogs.$inferInsert;
 
+// ============================================================================
+// RECYCLE BIN — isolated archive for operationally deleted entities
+// ============================================================================
+// Rows in this table are full snapshots. The original entity row is removed
+// from its live table in the same transaction, so archived data can never be
+// picked up by V2, RADIUS authorization, reports, or normal search queries.
+export const recycleBinItems = mysqlTable("recycle_bin_items", {
+  id: varchar("id", { length: 36 }).primaryKey(),
+  entityType: varchar("entityType", { length: 50 }).notNull(),
+  entityId: varchar("entityId", { length: 100 }).notNull(),
+  displayName: varchar("displayName", { length: 255 }).notNull(),
+  batchId: varchar("batchId", { length: 50 }),
+  ownerId: int("ownerId").notNull(),
+  resellerId: int("resellerId"),
+  deletedBy: int("deletedBy").notNull(),
+  deletedByRole: varchar("deletedByRole", { length: 50 }).notNull(),
+  snapshot: json("snapshot").notNull(),
+  deletedAt: timestamp("deletedAt").defaultNow().notNull(),
+  purgeAt: timestamp("purgeAt").notNull(),
+  status: mysqlEnum("status", ["deleted", "restoring", "purging"]).default("deleted").notNull(),
+}, (table) => ({
+  ownerDeletedIdx: index("recycle_bin_owner_deleted_idx").on(table.ownerId, table.deletedAt),
+  resellerDeletedIdx: index("recycle_bin_reseller_deleted_idx").on(table.resellerId, table.deletedAt),
+  ownerTypeIdx: index("recycle_bin_owner_type_idx").on(table.ownerId, table.entityType),
+  purgeIdx: index("recycle_bin_purge_idx").on(table.status, table.purgeAt),
+  entityIdx: index("recycle_bin_entity_idx").on(table.entityType, table.entityId),
+}));
+
+export type RecycleBinItem = typeof recycleBinItems.$inferSelect;
+export type InsertRecycleBinItem = typeof recycleBinItems.$inferInsert;
+
 
 // ============================================================================
 // VPN IP POOL (Static IP allocation for VPN NAS devices)

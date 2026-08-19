@@ -86,10 +86,11 @@ export const generate = activeSubscriptionProcedure
       
       try {
         // V2: VoucherEngine.generateCards (Infrastructure: generateCardsV2 + Events + AuditLog + Metrics)
+        const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
         return await voucherEngine.generateCards({
           ...input,
-          createdBy: ctx.user.id,
-          resellerId: ctx.user.role === 'reseller' ? ctx.user.id : undefined,
+          createdBy: effectiveOwnerId,
+          resellerId: ctx.user.role === 'reseller' ? effectiveOwnerId : undefined,
         });
       } catch (err: any) {
         // Parse namespace capacity errors for user-friendly messages
@@ -141,7 +142,8 @@ export const suspend = activeSubscriptionProcedure
     .mutation(async ({ ctx, input }) => {
       const card = await cardDb.getCardById(input.cardId);
       if (!card) throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
-      if (!isAdmin(ctx.user.role) && card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (!isAdmin(ctx.user.role) && card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       // V2: VoucherEngine.suspendCard (Auth-Type Reject + Transaction + EventBus)
@@ -155,7 +157,8 @@ export const unsuspend = activeSubscriptionProcedure
     .mutation(async ({ ctx, input }) => {
       const card = await cardDb.getCardById(input.cardId);
       if (!card) throw new TRPCError({ code: "NOT_FOUND", message: "Card not found" });
-      if (!isAdmin(ctx.user.role) && card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (!isAdmin(ctx.user.role) && card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Access denied" });
       }
       // V2: VoucherEngine.activateCard (حذف Auth-Type Reject + Transaction + EventBus)
@@ -244,7 +247,8 @@ export const bulkActivate = protectedProcedure
       
       // Verify ownership
       if (!isAdmin(ctx.user.role)) {
-        const unauthorized = cards.some((card: any) => card.createdBy !== ctx.user.id);
+        const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+        const unauthorized = cards.some((card: any) => card.createdBy !== effectiveOwnerId);
         if (unauthorized) throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
       
@@ -270,7 +274,8 @@ export const bulkDeactivate = protectedProcedure
       
       // Verify ownership
       if (!isAdmin(ctx.user.role)) {
-        const unauthorized = cards.some((card: any) => card.createdBy !== ctx.user.id);
+        const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+        const unauthorized = cards.some((card: any) => card.createdBy !== effectiveOwnerId);
         if (unauthorized) throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
       
@@ -310,6 +315,7 @@ export const createManualCard = activeSubscriptionProcedure
 
       const db = await getDb();
       if (!db) throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: 'Database not available' });
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
 
       // Check username uniqueness GLOBALLY (across all owners in radius_cards AND radcheck)
       const [existingCard, existingRadcheck] = await Promise.all([
@@ -328,6 +334,9 @@ export const createManualCard = activeSubscriptionProcedure
       const planResult = await planDb.getPlanById(input.planId);
       if (!planResult) throw new TRPCError({ code: 'NOT_FOUND', message: 'Plan not found' });
       const plan = planResult as any;
+      if (!isAdmin(ctx.user.role) && plan.ownerId !== effectiveOwnerId) {
+        throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
+      }
 
       // Calculate expiry date
       let expiresAt: Date | null = null;
@@ -355,7 +364,7 @@ export const createManualCard = activeSubscriptionProcedure
         const existingBatch = await db.select({ batchId: cardBatches.batchId })
           .from(cardBatches)
           .where(and(
-            eq(cardBatches.createdBy, ctx.user.id),
+            eq(cardBatches.createdBy, effectiveOwnerId),
             eq(cardBatches.name, 'يدوي')
           ))
           .limit(1);
@@ -371,8 +380,8 @@ export const createManualCard = activeSubscriptionProcedure
             batchId,
             name: 'يدوي',
             planId: input.planId,
-            createdBy: ctx.user.id,
-            resellerId: ctx.user.role === 'reseller' ? ctx.user.id : null,
+            createdBy: effectiveOwnerId,
+            resellerId: ctx.user.role === 'reseller' ? effectiveOwnerId : null,
             quantity: 1,
             status: 'completed',
           } as any);
@@ -432,8 +441,8 @@ export const createManualCard = activeSubscriptionProcedure
           serialNumber,
           batchId,
           planId: input.planId,
-          createdBy: ctx.user.id,
-          resellerId: ctx.user.role === 'reseller' ? ctx.user.id : null,
+          createdBy: effectiveOwnerId,
+          resellerId: ctx.user.role === 'reseller' ? effectiveOwnerId : null,
           status: 'unused',
           expiresAt,
           fullName: input.fullName || null,
@@ -453,7 +462,7 @@ export const createManualCard = activeSubscriptionProcedure
           lifecycleId,
           cardId,
           username: input.username,
-          ownerId: ctx.user.id,
+          ownerId: effectiveOwnerId,
         });
 
         // Insert radcheck: authentication + control attributes (unified)
@@ -530,7 +539,7 @@ export const createManualCard = activeSubscriptionProcedure
           );
         } else {
           // كرت عادي: استخدم owner_X كمجموعة في radusergroup
-          const ownerGroupName = `owner_${ctx.user.id}`;
+          const ownerGroupName = `owner_${effectiveOwnerId}`;
           await tx.execute(
             sql`INSERT INTO radusergroup (username, groupname, priority)
                 VALUES (${input.username}, ${ownerGroupName}, 1)
@@ -565,7 +574,8 @@ export const renewCard = activeSubscriptionProcedure
       // V2: VoucherRepository.findById
       const card = await voucherRepository.findById(input.cardId);
       if (!card) throw new TRPCError({ code: 'NOT_FOUND', message: 'Card not found' });
-      if (!isAdmin(ctx.user.role) && card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (!isAdmin(ctx.user.role) && card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
       // Calculate new expiry date (optional — no_expiry means no date)
@@ -625,7 +635,8 @@ export const updateCardPlanSpeed = activeSubscriptionProcedure
       // V2: VoucherRepository.findById
       const card = await voucherRepository.findById(input.cardId);
       if (!card) throw new TRPCError({ code: 'NOT_FOUND', message: 'Card not found' });
-      if (!isAdmin(ctx.user.role) && card.createdBy !== ctx.user.id && card.resellerId !== ctx.user.id) {
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+      if (!isAdmin(ctx.user.role) && card.createdBy !== effectiveOwnerId && card.resellerId !== effectiveOwnerId) {
         throw new TRPCError({ code: 'FORBIDDEN', message: 'Access denied' });
       }
       // Get new plan info

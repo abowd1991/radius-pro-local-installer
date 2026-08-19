@@ -116,7 +116,6 @@ export const getAdminStats = superAdminProcedure.query(async ({ ctx }) => {
 
 export const getClientStats = protectedProcedure.query(async ({ ctx }) => {
     const database = await getDb();
-    const userId = ctx.user.id;
     
     // Get tenant context and effective owner ID (handles client_admin/client_staff)
     const tenantContext = getTenantContext(ctx.user);
@@ -153,7 +152,7 @@ export const getClientStats = protectedProcedure.query(async ({ ctx }) => {
       nasDb.getNasDevicesByTenant(tenantContext),
       // last deposit
       database.select().from(walletLedger)
-        .where(and(eq(walletLedger.userId, userId), sql`${walletLedger.type} = 'credit'`))
+        .where(and(eq(walletLedger.userId, effectiveOwnerId), sql`${walletLedger.type} = 'credit'`))
         .orderBy(desc(walletLedger.createdAt)).limit(1),
       // bank transfer stats
       database.select({ status: sql<string>`status`, count: sql<number>`COUNT(*)` })
@@ -161,7 +160,7 @@ export const getClientStats = protectedProcedure.query(async ({ ctx }) => {
         .where(sql`userId = ${effectiveOwnerId}`)
         .groupBy(sql`status`),
       // unread notifications
-      notificationDb.getUnreadCount(userId),
+      notificationDb.getUnreadCount(effectiveOwnerId),
       // last billing
       database.select().from(walletLedger)
         .where(and(eq(walletLedger.userId, effectiveOwnerId), sql`${walletLedger.type} = 'billing'`))
@@ -534,7 +533,7 @@ export const getStats = protectedProcedure.query(async ({ ctx }) => {
             sql`${radiusCards.firstUseAt} IS NOT NULL AND ${radiusCards.firstUseAt} >= ${weekRange.start.toISOString()}`)
         ),
         // Wallet balance
-        database.select().from(wallets).where(eq(wallets.userId, ctx.user.id)),
+        database.select().from(wallets).where(eq(wallets.userId, effectiveOwnerId)),
       ]);
 
       const totalCards = batches.reduce((sum: number, b: any) => sum + (b.stats?.total || 0), 0);
@@ -569,7 +568,7 @@ export const getStats = protectedProcedure.query(async ({ ctx }) => {
       const [ownerNasDevices, ownerBatches, walletRows, ownerSessions] = await Promise.all([
         nasDb.getNasDevicesByTenant(tenantContext),
         cardDb.getBatchesByTenantWithStats(tenantContext),
-        database.select().from(wallets).where(eq(wallets.userId, ctx.user.id)),
+        database.select().from(wallets).where(eq(wallets.userId, effectiveOwnerId)),
         mikrotikApi.getActiveSessionsByOwner(effectiveOwnerId).catch(() => [] as any[]),
       ]);
 

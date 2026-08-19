@@ -53,7 +53,7 @@ export const exportRevenueExcel = protectedProcedure
         new Date(input.endDate),
         input.groupBy
       );
-      const buffer = reportExporter.generateRevenueExcel(data);
+      const buffer = await reportExporter.generateRevenueExcel(data);
       return { data: buffer.toString("base64"), filename: `revenue-report-${input.startDate}-${input.endDate}.xlsx` };
     });
 
@@ -71,7 +71,7 @@ export const exportCardsExcel = protectedProcedure
         new Date(input.startDate),
         new Date(input.endDate)
       );
-      const buffer = reportExporter.generateCardsExcel(data);
+      const buffer = await reportExporter.generateCardsExcel(data);
       return { data: buffer.toString("base64"), filename: `cards-report-${input.startDate}-${input.endDate}.xlsx` };
     });
 
@@ -89,7 +89,7 @@ export const exportSessionsExcel = protectedProcedure
         new Date(input.startDate),
         new Date(input.endDate)
       );
-      const buffer = reportExporter.generateSessionsExcel(data);
+      const buffer = await reportExporter.generateSessionsExcel(data);
       return { data: buffer.toString("base64"), filename: `sessions-report-${input.startDate}-${input.endDate}.xlsx` };
     });
 
@@ -107,7 +107,7 @@ export const exportSubscribersExcel = protectedProcedure
         new Date(input.startDate),
         new Date(input.endDate)
       );
-      const buffer = reportExporter.generateSubscribersExcel(data);
+      const buffer = await reportExporter.generateSubscribersExcel(data);
       return { data: buffer.toString("base64"), filename: `subscribers-report-${input.startDate}-${input.endDate}.xlsx` };
     });
 
@@ -169,4 +169,3 @@ export const exportSessionsPDF = protectedProcedure
       const html = reportExporter.generateSessionsPDFHTML(data, dateRange);
       return { html, filename: `sessions-report-${input.startDate}-${input.endDate}.html` };
     });
-

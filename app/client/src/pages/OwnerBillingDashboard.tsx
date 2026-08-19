@@ -386,8 +386,8 @@ export default function OwnerBillingDashboard() {
                   labelFormatter={(v) =>
                     safeFormatDate(v, timezone, { year: 'numeric', month: 'long', day: 'numeric' })
                   }
-                  formatter={(value: number, name: string) => [
-                    fmt(value),
+                  formatter={(value: any, name: any) => [
+                    fmt(Number(value ?? 0)),
                     name === "deposits" ? "إيداعات" : "خصومات",
                   ]}
                 />

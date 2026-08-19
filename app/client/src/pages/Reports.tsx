@@ -524,7 +524,7 @@ export default function Reports() {
                     <Pie data={cardStatusData} cx="50%" cy="50%"
                       outerRadius={90} innerRadius={45}
                       labelLine={false}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                       dataKey="value">
                       {cardStatusData.map((_: any, i: number) => (
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
@@ -663,7 +663,7 @@ export default function Reports() {
                     <Pie data={cardStatusData} cx="50%" cy="50%"
                       outerRadius={90} innerRadius={45}
                       labelLine={false}
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                       dataKey="value">
                       {cardStatusData.map((_: any, i: number) => (
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />

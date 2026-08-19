@@ -12,7 +12,7 @@
 
 import mammoth from 'mammoth';
 import * as pdfParseModule from 'pdf-parse';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 const pdfParse = (pdfParseModule as any).default || pdfParseModule;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -214,31 +214,22 @@ function assertSafeXlsxContainer(buffer: Buffer): void {
   }
 }
 
-function parseExcelToRows(buffer: Buffer): string[][] {
+async function parseExcelToRows(buffer: Buffer): Promise<string[][]> {
   assertSafeXlsxContainer(buffer);
-  const workbook = XLSX.read(buffer, {
-    type: 'buffer',
-    bookVBA: false,
-    cellFormula: false,
-    cellHTML: false,
-    cellText: false,
-    WTF: false,
-  });
-  if (workbook.SheetNames.length === 0 || workbook.SheetNames.length > 20) {
+  const workbook = new ExcelJS.Workbook();
+  // ExcelJS يعرّف Buffer بإصدار Node مختلف؛ الحاوية فُحصت قبل هذا التحميل.
+  await workbook.xlsx.load(buffer as any);
+  if (workbook.worksheets.length === 0 || workbook.worksheets.length > 20) {
     throw new Error("عدد أوراق XLSX خارج الحد المسموح");
   }
   const rows: string[][] = [];
 
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    const sheetRows: string[][] = XLSX.utils.sheet_to_json(sheet, {
-      header: 1,
-      defval: '',
-      raw: false,
-    }) as string[][];
-
-    for (const row of sheetRows) {
-      const cells = row.map((c: any) => sanitizeCell(String(c ?? '')));
+  for (const sheet of workbook.worksheets) {
+    for (let rowNumber = 1; rowNumber <= sheet.rowCount; rowNumber++) {
+      const row = sheet.getRow(rowNumber);
+      const cells = Array.from({ length: Math.min(row.cellCount, 100) }, (_, index) =>
+        sanitizeCell(row.getCell(index + 1).text ?? ''),
+      );
       if (cells.filter(c => c.length > 0).length >= 2) rows.push(cells);
       if (rows.length >= MAX_ROWS) break;
     }
@@ -297,7 +288,7 @@ export async function parseFileToRows(
     ext === 'xlsx'
   ) {
     fileType = 'xlsx';
-    rows = parseExcelToRows(buffer);
+    rows = await parseExcelToRows(buffer);
   } else {
     throw new Error(`نوع الملف غير مدعوم. المدعوم: CSV, Excel (.xlsx), Word (.docx), PDF`);
   }

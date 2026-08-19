@@ -296,6 +296,7 @@ export default function Plans() {
     user?.role === "owner" ||
     user?.role === "super_admin" ||
     user?.role === "client" ||
+    user?.role === "client_staff" ||
     user?.role === "reseller";
 
   if (!canManagePlans) return null;

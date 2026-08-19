@@ -3,9 +3,10 @@ import { protectedProcedure, router, superAdminProcedure } from "../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { portForwardingEngine } from "../domains/network/PortForwardingEngine";
 import * as db from "../db";
+import { getEffectiveOwnerId, getTenantContext } from "../tenant-isolation";
 
 function getOwnerId(user: any): number {
-  return user.role === "client_owner" ? user.id : (user.ownerId || user.id);
+  return getEffectiveOwnerId(getTenantContext(user));
 }
 
 function toTrpcError(error: unknown): never {

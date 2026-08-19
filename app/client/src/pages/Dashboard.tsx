@@ -137,8 +137,8 @@ export default function Dashboard() {
     });
   }
 
-  // Client & Client Owner → New Professional Dashboard
-  if (user?.role === "client_owner" || user?.role === "client") {
+  // العميل وموظفه المفوض يعملان ضمن لوحة العميل الرسمية نفسها.
+  if (user?.role === "client_owner" || user?.role === "client" || user?.role === "client_staff") {
     return <ClientDashboard />;
   }
 

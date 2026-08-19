@@ -14,6 +14,7 @@ import { generateCardsV2 } from "../db/generateCardsV2";
 import * as tweetsmsService from "../services/tweetsmsService";
 import { isAdmin } from "../_core/roles";
 import { SMS_CARD_PREFIX_PATTERN, normalizeSmsCardPrefix } from "../../shared/smsCardPrefix";
+import { getEffectiveOwnerId, getTenantContext } from "../tenant-isolation";
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -66,10 +67,11 @@ export const smsCardsRouter = router({
   /** جلب جميع جهات الاتصال */
   getContacts: protectedProcedure.query(async ({ ctx }) => {
     const db = await getDb();
+    const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
     return db
       .select()
       .from(smsContacts)
-      .where(eq(smsContacts.ownerId, ctx.user.id))
+      .where(eq(smsContacts.ownerId, effectiveOwnerId))
       .orderBy(desc(smsContacts.createdAt));
   }),
 
@@ -81,8 +83,9 @@ export const smsCardsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       await db.insert(smsContacts).values({
-        ownerId: ctx.user.id,
+        ownerId: effectiveOwnerId,
         name: input.name,
         phone: input.phone,
       });
@@ -98,8 +101,9 @@ export const smsCardsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       const [existing] = await db.select().from(smsContacts)
-        .where(and(eq(smsContacts.id, input.id), eq(smsContacts.ownerId, ctx.user.id)))
+        .where(and(eq(smsContacts.id, input.id), eq(smsContacts.ownerId, effectiveOwnerId)))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "جهة الاتصال غير موجودة" });
       await db.update(smsContacts)
@@ -113,8 +117,9 @@ export const smsCardsRouter = router({
     .input(z.object({ id: z.number() }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       const [existing] = await db.select().from(smsContacts)
-        .where(and(eq(smsContacts.id, input.id), eq(smsContacts.ownerId, ctx.user.id)))
+        .where(and(eq(smsContacts.id, input.id), eq(smsContacts.ownerId, effectiveOwnerId)))
         .limit(1);
       if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "جهة الاتصال غير موجودة" });
       await db.delete(smsContacts).where(eq(smsContacts.id, input.id));
@@ -150,19 +155,20 @@ export const smsCardsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       const isSystemAdmin = isAdmin(ctx.user.role);
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
 
       // 1. التحقق من تفعيل SMS للمستخدم
-      let channel = await getSmsChannel(ctx.user.id);
+      let channel = await getSmsChannel(effectiveOwnerId);
       if (!channel && isSystemAdmin) {
         await db.insert(notificationChannels).values({
-          ownerId: ctx.user.id,
+          ownerId: effectiveOwnerId,
           channel: 'sms',
           enabled: true,
           smsAdminEnabled: true,
           smsMonthlyLimit: 0,
           smsBalance: 0,
         });
-        channel = await getSmsChannel(ctx.user.id);
+        channel = await getSmsChannel(effectiveOwnerId);
       }
 
       // تحديد نوع المزود: خارجي (Custom API / TweetSMS خاص) أم داخلي (Radius Pro)
@@ -215,7 +221,7 @@ export const smsCardsRouter = router({
       let resolvedName = input.contactName || input.contactPhone;
       if (input.contactId) {
         const [contact] = await db.select().from(smsContacts)
-          .where(and(eq(smsContacts.id, input.contactId), eq(smsContacts.ownerId, ctx.user.id)))
+          .where(and(eq(smsContacts.id, input.contactId), eq(smsContacts.ownerId, effectiveOwnerId)))
           .limit(1);
         if (contact) resolvedName = contact.name;
       }
@@ -223,7 +229,7 @@ export const smsCardsRouter = router({
       // 5. حفظ جهة الاتصال إذا طُلب ذلك
       if (input.saveContact && !input.contactId && input.contactName) {
         await db.insert(smsContacts).values({
-          ownerId: ctx.user.id,
+          ownerId: effectiveOwnerId,
           name: input.contactName,
           phone: input.contactPhone,
         }).catch(() => {}); // تجاهل خطأ التكرار
@@ -234,7 +240,7 @@ export const smsCardsRouter = router({
       const result = await generateCardsV2({
         planId: input.planId,
         quantity: input.quantity,
-        createdBy: ctx.user.id,
+        createdBy: effectiveOwnerId,
         batchName,
         usernameLength: input.usernameLength,
         passwordLength: input.passwordLength,
@@ -261,7 +267,7 @@ export const smsCardsRouter = router({
       let lastError = "";
       for (const message of smsMessages) {
         const sendResult = isExternalProvider
-          ? await tweetsmsService.sendSmsTenant(ctx.user.id, input.contactPhone, message, { type: "bulk", sentBy: ctx.user.id })
+          ? await tweetsmsService.sendSmsTenant(effectiveOwnerId, input.contactPhone, message, { type: "bulk", sentBy: ctx.user.id })
           : await tweetsmsService.sendSms(input.contactPhone, message, undefined, { type: "bulk", sentBy: ctx.user.id, skipLogging: false });
         if (sendResult.success) {
           sentCount++;
@@ -282,7 +288,7 @@ export const smsCardsRouter = router({
 
       // 10. تسجيل في سجل الإرسال
       await db.insert(smsSendLog).values({
-        ownerId: ctx.user.id,
+        ownerId: effectiveOwnerId,
         contactId: input.contactId ?? null,
         contactName: resolvedName,
         contactPhone: input.contactPhone,
@@ -319,16 +325,17 @@ export const smsCardsRouter = router({
     }))
     .query(async ({ ctx, input }) => {
       const db = await getDb();
+      const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
       const logs = await db
         .select()
         .from(smsSendLog)
-        .where(eq(smsSendLog.ownerId, ctx.user.id))
+        .where(eq(smsSendLog.ownerId, effectiveOwnerId))
         .orderBy(desc(smsSendLog.createdAt))
         .limit(input.limit)
         .offset(input.offset);
 
       const [countResult] = await db.execute(
-        sql`SELECT COUNT(*) as total FROM sms_send_log WHERE ownerId = ${ctx.user.id}`
+        sql`SELECT COUNT(*) as total FROM sms_send_log WHERE ownerId = ${effectiveOwnerId}`
       ) as any;
       const total = Number(countResult?.[0]?.total ?? 0);
 
@@ -339,7 +346,8 @@ export const smsCardsRouter = router({
 
   /** جلب إحصائيات SMS للمستخدم الحالي (الرصيد الحالي) */
   getSmsStats: protectedProcedure.query(async ({ ctx }) => {
-    const channel = await getSmsChannel(ctx.user.id);
+    const effectiveOwnerId = getEffectiveOwnerId(getTenantContext(ctx.user));
+    const channel = await getSmsChannel(effectiveOwnerId);
     const isSystemAdmin = isAdmin(ctx.user.role);
 
     return {

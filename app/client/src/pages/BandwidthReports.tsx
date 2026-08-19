@@ -318,8 +318,8 @@ export function BandwidthReports({ embedded = false }: BandwidthReportsProps) {
                     <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} minTickGap={28} />
                     <YAxis tickFormatter={formatAxisBytes} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} width={56} />
                     <Tooltip
-                      formatter={(value: number) => formatBytes(Number(value))}
-                      labelFormatter={(label: string, payload: any[]) => payload?.[0]?.payload?.tooltipLabel || label}
+                      formatter={(value: any) => formatBytes(Number(value ?? 0))}
+                      labelFormatter={(label: any, payload: readonly any[]) => payload?.[0]?.payload?.tooltipLabel || label}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Area type="monotone" dataKey="totalDownload" name={language === "ar" ? "التحميل" : "Download"} stackId="usage" stroke="#3b82f6" fill="url(#bandwidthDownload)" strokeWidth={2} />
@@ -355,8 +355,8 @@ export function BandwidthReports({ embedded = false }: BandwidthReportsProps) {
                     <YAxis yAxisId="bytes" tickFormatter={formatAxisBytes} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} width={56} />
                     <YAxis yAxisId="sessions" orientation="right" allowDecimals={false} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} width={30} />
                     <Tooltip
-                      formatter={(value: number, name: string) => [name === (language === "ar" ? "الجلسات" : "Sessions") ? value : formatBytes(Number(value)), name]}
-                      labelFormatter={(label: string, payload: any[]) => payload?.[0]?.payload?.tooltipLabel || label}
+                      formatter={(value: any, name: any) => [name === (language === "ar" ? "الجلسات" : "Sessions") ? value : formatBytes(Number(value ?? 0)), name]}
+                      labelFormatter={(label: any, payload: readonly any[]) => payload?.[0]?.payload?.tooltipLabel || label}
                     />
                     <Legend wrapperStyle={{ fontSize: 12 }} />
                     <Line yAxisId="bytes" type="monotone" dataKey="totalData" name={language === "ar" ? "إجمالي البيانات" : "Total Data"} stroke="#8b5cf6" strokeWidth={2.5} dot={false} activeDot={{ r: 5 }} />

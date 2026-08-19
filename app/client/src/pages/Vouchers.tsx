@@ -97,11 +97,13 @@ import { formatDate, formatDateCompact, formatDateWithWeekday } from '@/lib/date
 import { cn } from "@/lib/utils";
 import { useTimezoneV6 } from "@/contexts/TimezoneV6Context";
 import { dateTimeLocalToUtcIso, formatDateTimeLocal, nowDateTimeLocal } from "@/lib/timezoneV6";
-import * as XLSX from "xlsx";
+import { useFeatureAccess } from "@/hooks/useFeatureAccess";
+import ExcelJS from "exceljs";
 
 
 export default function Vouchers() {
   const { user } = useAuth();
+  const { permissions, allowedMenuItems } = useFeatureAccess();
   const utils = trpc.useUtils();
   const { t, language, direction } = useLanguage();
   const { timezone } = useTimezoneV6();
@@ -299,9 +301,28 @@ export default function Vouchers() {
       'كلمة المرور': c.password || '',
     }));
     if (batchExportFormat === 'xlsx') {
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(exportRows), 'Cards');
-      XLSX.writeFile(workbook, `cards-batches-${Date.now()}.xlsx`);
+      const exportXlsx = async () => {
+        const workbook = new ExcelJS.Workbook();
+        const sheet = workbook.addWorksheet('Cards', { views: [{ rightToLeft: true }] });
+        sheet.columns = [
+          { header: 'الاى دى', key: 'serialNumber', width: 18 },
+          { header: 'اسم المستخدم', key: 'username', width: 22 },
+          { header: 'كلمة المرور', key: 'password', width: 22 },
+        ];
+        exportRows.forEach(row => sheet.addRow({
+          serialNumber: row['الاى دى'], username: row['اسم المستخدم'], password: row['كلمة المرور'],
+        }));
+        const blob = new Blob([await workbook.xlsx.writeBuffer()], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = `cards-batches-${Date.now()}.xlsx`;
+        anchor.click();
+        URL.revokeObjectURL(url);
+      };
+      void exportXlsx();
     } else {
       const rows = ['الاى دى;اسم المستخدم;كلمة المرور', ...exportRows.map(row =>
         `"${row['الاى دى']}";"${row['اسم المستخدم'].replace(/"/g, '""')}";"${row['كلمة المرور'].replace(/"/g, '""')}"`)
@@ -927,9 +948,16 @@ export default function Vouchers() {
     return filteredBatches.slice(start, start + batchPageSize);
   }, [filteredBatches, batchPage, batchPageSize]);
 
-   const isAdmin = user?.role === 'super_admin' || user?.role === 'owner';
-  // Allow owner, client, reseller, and admin to create cards
-  const canCreateCards = user?.role === 'owner' || user?.role === 'client' || user?.role === 'reseller' || isAdmin;
+  const isAdmin = user?.role === 'super_admin' || user?.role === 'owner';
+  const isStaffWithVoucherAccess = user?.role === 'client_staff'
+    && permissions.canManageVouchers
+    && allowedMenuItems.includes('/vouchers');
+  // الموظف يرث أدوات الكروت عند منحه مجموعة cards_vouchers ومسار الكروت.
+  const canCreateCards = user?.role === 'owner'
+    || user?.role === 'client'
+    || user?.role === 'reseller'
+    || isAdmin
+    || isStaffWithVoucherAccess;
   const isReseller = canCreateCards; // Keep for backward compatibility
   const isClient = user?.role === 'client';
 
