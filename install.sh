@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.8}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.9}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -111,7 +111,8 @@ create_secrets() {
   REDIS_PASSWORD="$(random_hex 32)"
   JWT_SECRET="$(random_hex 48)"
   LOCAL_RADIUS_SECRET="$(random_hex 24)"
-  VPN_IPSEC_PSK="${RADIUS_PRO_VPN_PSK:-$(random_hex 24)}"
+  # L2TP/IPsec uses one documented static PSK for all managed MikroTik NAS.
+  VPN_IPSEC_PSK="softether"
   VPN_API_KEY="$(random_hex 32)"
   COA_API_KEY="$(random_hex 32)"
   cat > "$CONFIG_DIR/installer.env" <<EOF
@@ -238,11 +239,14 @@ install_pptpd_server() {
   sed -i 's/^PLUGINS = pptpd-logwtmp\.so$/PLUGINS =/' "$source_dir/plugins/Makefile"
   (
     cd "$source_dir"
+    autoreconf -fi
     ./configure --prefix=/usr/local --sbindir=/usr/local/sbin
     make --jobs="$(nproc)"
     install -m 0755 ./pptpd /usr/local/sbin/pptpd
+    install -m 0755 ./pptpctrl /usr/local/sbin/pptpctrl
   )
   test -x /usr/local/sbin/pptpd || die "PPTP source build did not install /usr/local/sbin/pptpd"
+  test -x /usr/local/sbin/pptpctrl || die "PPTP source build did not install /usr/local/sbin/pptpctrl"
   cat > /etc/systemd/system/pptpd.service <<'EOF'
 [Unit]
 Description=PoPToP PPTP Daemon
