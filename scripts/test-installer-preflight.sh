@@ -73,6 +73,9 @@ grep -Fq 'pm2 startup systemd -u root --hp /root >/dev/null' "$ROOT_DIR/install.
 ! grep -Fq 'pm2 startup systemd -u root --hp /root | tail -n 1 | bash' "$ROOT_DIR/install.sh"
 grep -Fq 'ufw allow in proto gre from any to any comment "PPTP GRE"' "$ROOT_DIR/install.sh"
 ! grep -Fq 'ufw allow proto gre comment "PPTP GRE"' "$ROOT_DIR/install.sh"
+grep -Fq 'Type=forking' "$ROOT_DIR/install.sh"
+grep -Fq 'PIDFile=/run/accel-ppp.pid' "$ROOT_DIR/install.sh"
+grep -Fq 'Restart=on-failure' "$ROOT_DIR/install.sh"
 while IFS= read -r -d '' migration; do
   statements=$(grep -cE ';[[:space:]]*$' "$migration" || true)
   breakpoints=$(grep -c '^--> statement-breakpoint$' "$migration" || true)

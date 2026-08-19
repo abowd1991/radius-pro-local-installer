@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.9}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.0}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -579,9 +579,11 @@ Description=Accel-PPP VPN daemon
 After=network-online.target
 Wants=network-online.target
 [Service]
-Type=simple
+Type=forking
+PIDFile=/run/accel-ppp.pid
 ExecStart=/usr/local/sbin/accel-pppd -c /etc/accel-ppp.conf -p /run/accel-ppp.pid -d
-Restart=always
+ExecReload=/bin/kill -SIGUSR1 $MAINPID
+Restart=on-failure
 RestartSec=5
 [Install]
 WantedBy=multi-user.target
