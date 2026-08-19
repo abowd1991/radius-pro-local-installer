@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.6}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.7}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -659,6 +659,13 @@ EOF
 
 configure_local_apis() {
   source "$CONFIG_DIR/installer.env"
+  local radius_operations_key_file="$INSTALL_DIR/.radius-operations.key"
+  if [[ ! -s "$radius_operations_key_file" ]]; then
+    umask 077
+    openssl rand -hex 32 > "$radius_operations_key_file"
+  fi
+  chown root:root "$radius_operations_key_file"
+  chmod 0600 "$radius_operations_key_file"
   install -m 0750 "${INSTALLER_SOURCE_DIR}/services/vpn-api.py" /opt/vpn-api.py
   install -m 0750 "${INSTALLER_SOURCE_DIR}/services/coa-api.py" /opt/radius-pro/coa_api.py
   cat > "$CONFIG_DIR/vpn-api.env" <<EOF
@@ -714,7 +721,7 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
   systemctl daemon-reload
-  log "loopback-only VPN and CoA APIs configured"
+  log "loopback-only VPN, CoA and Radius Operations APIs configured"
 }
 
 configure_application_and_proxy() {
