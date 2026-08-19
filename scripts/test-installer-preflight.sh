@@ -66,6 +66,9 @@ grep -Fq 'source "$INSTALL_DIR/.env"' "$ROOT_DIR/install.sh"
 grep -Fq 'database migrations did not create radius_pro.users' "$ROOT_DIR/install.sh"
 grep -Fq 'pool {' "$ROOT_DIR/install.sh"
 ! grep -Fq 'pool { start =' "$ROOT_DIR/install.sh"
+grep -Fq '${BASH_SOURCE[0]:-}' "$ROOT_DIR/install.sh"
+grep -Fq 'explicit clean-test reset requested' "$ROOT_DIR/install.sh"
+grep -Fq 'rm -rf "$INSTALL_DIR" "$CONFIG_DIR"' "$ROOT_DIR/install.sh"
 while IFS= read -r -d '' migration; do
   statements=$(grep -cE ';[[:space:]]*$' "$migration" || true)
   breakpoints=$(grep -c '^--> statement-breakpoint$' "$migration" || true)

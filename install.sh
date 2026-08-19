@@ -5,10 +5,17 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.6}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.7}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
-readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
+INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
+if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
+  INSTALLER_SCRIPT_PATH="$(readlink -f "$INSTALLER_SCRIPT_PATH")"
+  INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
+else
+  INSTALLER_SCRIPT_PATH=""
+  INSTALLER_SOURCE_DIR=""
+fi
+readonly INSTALLER_SCRIPT_PATH INSTALLER_SOURCE_DIR
 RELEASE_VERSION=""
 readonly INSTALL_DIR="/opt/radius-pro"
 readonly CONFIG_DIR="/etc/radius-pro"
@@ -64,10 +71,16 @@ check_system() {
   [[ "$(dpkg --print-architecture)" == "amd64" ]] || die "only Ubuntu amd64 is currently supported"
   (( $(free -m | awk '/^Mem:/{print $2}') >= 1024 )) || die "at least 1 GiB RAM is required"
   (( $(df -Pm / | awk 'NR==2 {print $4}') >= 10240 )) || die "at least 10 GiB free disk is required"
-  [[ ! -e "$INSTALL_DIR/.release-manifest" ]] || die "an existing Radius Pro release was found; this installer is fresh-install only"
-  mkdir -p "$LOG_DIR" "$BACKUP_DIR" "$CONFIG_DIR"
+  mkdir -p "$LOG_DIR" "$BACKUP_DIR"
   touch "$INSTALL_LOG"
   chmod 600 "$INSTALL_LOG"
+  if [[ -e "$INSTALL_DIR/.release-manifest" ]]; then
+    [[ "${RADIUS_PRO_RESET_MYSQL:-0}" == "1" ]] || die "an existing Radius Pro release was found; this installer is fresh-install only"
+    log "explicit clean-test reset requested; removing the partial application state"
+    rm -rf "$INSTALL_DIR" "$CONFIG_DIR"
+    rm -f /root/.mysql_credentials
+  fi
+  mkdir -p "$CONFIG_DIR"
   log "system checks passed for Ubuntu ${VERSION_ID} LTS / Radius Pro ${RELEASE_VERSION}"
 }
 
