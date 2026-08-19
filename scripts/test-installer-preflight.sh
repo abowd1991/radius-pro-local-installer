@@ -59,6 +59,8 @@ grep -Fq 'PPTPD_SOURCE_SHA256="b427bb6f20a33c8736cb475fcd9de61e27c9eb01bccd6b342
 grep -Fq 'apt-get install -y -qq ppp-dev autoconf automake libtool' "$ROOT_DIR/install.sh"
 grep -Fq 'pptpd-logwtmp' "$ROOT_DIR/install.sh"
 grep -Fq 'install -m 0755 ./pptpd /usr/local/sbin/pptpd' "$ROOT_DIR/install.sh"
+grep -Fq 'test -d "$source_dir" || die "PPTP source archive did not extract as expected"' "$ROOT_DIR/install.sh"
+! grep -Fq 'mv "/usr/local/src/pptpd-${PPTPD_SOURCE_COMMIT}" "$source_dir"' "$ROOT_DIR/install.sh"
 grep -Fq 'Description=PoPToP PPTP Daemon' "$ROOT_DIR/install.sh"
 ! grep -Fq 'xl2tpd ppp pptpd' "$ROOT_DIR/install.sh"
 ! grep -Fq '^logwtmp$' "$ROOT_DIR/install.sh"

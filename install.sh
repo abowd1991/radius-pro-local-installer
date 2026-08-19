@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.4}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.5}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -231,7 +231,8 @@ install_pptpd_server() {
     "https://github.com/quozl/pptpd/archive/${PPTPD_SOURCE_COMMIT}.tar.gz" -o "$archive"
   printf '%s  %s\n' "$PPTPD_SOURCE_SHA256" "$archive" | sha256sum -c - >/dev/null
   tar -xzf "$archive" -C /usr/local/src
-  mv "/usr/local/src/pptpd-${PPTPD_SOURCE_COMMIT}" "$source_dir"
+  # The archive extracts directly to $source_dir; do not move it into itself.
+  test -d "$source_dir" || die "PPTP source archive did not extract as expected"
   # pptpd-logwtmp is optional. Disabling it removes the obsolete private PPP
   # header dependency without changing PPTP tunnel or RADIUS authentication.
   sed -i 's/^PLUGINS = pptpd-logwtmp\.so$/PLUGINS =/' "$source_dir/plugins/Makefile"

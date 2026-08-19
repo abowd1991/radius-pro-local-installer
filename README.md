@@ -7,7 +7,7 @@
 استخدم خادم Ubuntu LTS جديداً بمعمارية `amd64` مع صلاحية `root` أو `sudo` واتصال إنترنت. يدعم المثبّت الرسمي Ubuntu **20.04** و**22.04** و**24.04** و**26.04 LTS**؛ ويمنع الإصدارات المرحلية والمنتهية الدعم كي لا يثبت نظاماً إنتاجياً على قاعدة غير مستقرة. يشغّل الأمر التالي المثبّت كاملاً دون إدخال تفاعلي؛ تُولّد الأسرار وتحفظ محلياً بصلاحيات مقيدة، وبيانات دخول المدير الافتراضية هي `admin` / `admin` ما لم تمرر قيمة بديلة صراحةً.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.4/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.5/install.sh | sudo bash
 ```
 
 يمكن تمرير إعدادات اختيارية في نفس الأمر، مثل `RADIUS_PRO_PUBLIC_IP` و`RADIUS_PRO_ADMIN_USERNAME` و`RADIUS_PRO_ADMIN_PASSWORD` و`RADIUS_PRO_ADMIN_EMAIL`. لا تُضمّن أي أسرار في هذا المستودع. يثبت الرابط إصداراً موسوماً محدداً؛ وللاستخدام التجريبي لأحدث فرع رئيسي فقط، مرر `RADIUS_PRO_INSTALLER_REF=main` صراحةً.
@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installe
 يحفظ المثبّت الأسرار التي ولّدها في `/etc/radius-pro/installer.env` ويستخدمها عند إعادة التشغيل. على خادم تجريبي قابل للحذف فقط، إذا وُجدت قاعدة MySQL سابقة بكلمة مرور جذر مجهولة، يمكن إعادة ضبط بيانات MySQL قبل استكمال التثبيت:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.4/install.sh | sudo RADIUS_PRO_RESET_MYSQL=1 bash
+curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.5/install.sh | sudo RADIUS_PRO_RESET_MYSQL=1 bash
 ```
 
 > هذا الخيار يحذف نهائياً `/var/lib/mysql`، ولا يجوز استخدامه على خادم يحتوي أي بيانات MySQL مطلوبة.
