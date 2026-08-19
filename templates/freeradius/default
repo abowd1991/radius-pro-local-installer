@@ -10,12 +10,6 @@ server default {
     ipaddr = *
     port = 1813
   }
-  listen {
-    type = auth+acct
-    ipaddr = 127.0.0.1
-    port = 18120
-  }
-
   authorize {
     preprocess
     chap

@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.5}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.6}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -452,7 +452,7 @@ sql {
   }
 }
 EOF
-  install -m 0640 "${INSTALLER_SOURCE_DIR}/templates/freeradius/default" "$RADIUS_DIR/sites-available/default"
+  install -o root -g freerad -m 0640 "${INSTALLER_SOURCE_DIR}/templates/freeradius/default" "$RADIUS_DIR/sites-available/default"
   install -m 0640 "${INSTALLER_SOURCE_DIR}/templates/freeradius/exec" "$RADIUS_DIR/mods-available/exec"
   ln -sfn "$RADIUS_DIR/mods-available/sql" "$RADIUS_DIR/mods-enabled/sql"
   ln -sfn "$RADIUS_DIR/mods-available/exec" "$RADIUS_DIR/mods-enabled/exec"
@@ -466,6 +466,8 @@ client localhost {
   require_message_authenticator = no
 }
 EOF
+  chown root:freerad "$RADIUS_DIR/clients.conf"
+  chmod 0640 "$RADIUS_DIR/clients.conf"
   install -m 0750 "${INSTALLER_SOURCE_DIR}/services/radius-authorization-bridge.sh" /usr/local/bin/radius-authorization-bridge.sh
   install -m 0750 "${INSTALLER_SOURCE_DIR}/services/radius-accounting-bridge.sh" /usr/local/bin/radius-accounting-bridge.sh
   chown -R freerad:freerad "$RADIUS_DIR/dynamic-clients" "$RADIUS_DIR/mods-available/sql" "$RADIUS_DIR/mods-available/exec"
