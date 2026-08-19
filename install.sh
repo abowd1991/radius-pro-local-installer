@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.8}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.9}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -72,6 +72,13 @@ check_system() {
 }
 
 create_secrets() {
+  if [[ -f "$CONFIG_DIR/installer.env" ]]; then
+    # Reuse the original credentials when resuming an interrupted fresh install.
+    # This is necessary because a previous run may already have changed MySQL root authentication.
+    source "$CONFIG_DIR/installer.env"
+    log "reusing installer secrets from interrupted installation"
+    return
+  fi
   PUBLIC_IP="${RADIUS_PRO_PUBLIC_IP:-$(public_ipv4)}"
   [[ -n "$PUBLIC_IP" ]] || die "unable to determine public IPv4; set RADIUS_PRO_PUBLIC_IP before running"
   DOMAIN="${RADIUS_PRO_DOMAIN:-$PUBLIC_IP}"
@@ -199,7 +206,15 @@ install_accel_ppp() {
 configure_mysql() {
   source "$CONFIG_DIR/installer.env"
   systemctl enable --now mysql
-  mysql --protocol=socket -uroot <<SQL
+  local -a mysql_root=(mysql --protocol=socket -uroot)
+  if "${mysql_root[@]}" -e 'SELECT 1' >/dev/null 2>&1; then
+    : # Fresh Ubuntu MySQL uses socket authentication for root.
+  elif mysql --protocol=socket -uroot "-p${MYSQL_ROOT_PASSWORD}" -e 'SELECT 1' >/dev/null 2>&1; then
+    mysql_root=(mysql --protocol=socket -uroot "-p${MYSQL_ROOT_PASSWORD}")
+  else
+    die "unable to authenticate to local MySQL root; remove the partial installation or provide the original installer configuration"
+  fi
+  "${mysql_root[@]}" <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${MYSQL_ROOT_PASSWORD}';
 CREATE DATABASE IF NOT EXISTS radius_pro CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'radiuspro'@'localhost' IDENTIFIED BY '${RADIUS_PRO_APP_DB_PASSWORD}';
