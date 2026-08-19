@@ -58,5 +58,7 @@ test -f "$ROOT_DIR/scripts/bootstrap-owner.mjs"
 grep -Fq 'install -m 0600 "${INSTALLER_SOURCE_DIR}/scripts/bootstrap-owner.mjs" "$INSTALL_DIR/scripts/bootstrap-owner.mjs"' "$ROOT_DIR/install.sh"
 grep -Fq 'reusing installer secrets from interrupted installation' "$ROOT_DIR/install.sh"
 grep -Fq 'mysql --protocol=socket -uroot "-p${MYSQL_ROOT_PASSWORD}" -e' "$ROOT_DIR/install.sh"
+grep -Fq 'RADIUS_PRO_RESET_MYSQL:-0' "$ROOT_DIR/install.sh"
+grep -Fq 'mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql' "$ROOT_DIR/install.sh"
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'

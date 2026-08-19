@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.9}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.2.0}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -203,6 +203,16 @@ install_accel_ppp() {
   log "accel-ppp ${ACCEL_PPP_COMMIT:0:8} installed"
 }
 
+reset_mysql_for_fresh_install() {
+  [[ "${RADIUS_PRO_RESET_MYSQL:-0}" == "1" ]] || return 1
+  log "explicit MySQL reset requested for fresh installation"
+  systemctl stop mysql || true
+  rm -rf /var/lib/mysql
+  install -d -o mysql -g mysql -m 0750 /var/lib/mysql
+  mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql
+  systemctl start mysql
+}
+
 configure_mysql() {
   source "$CONFIG_DIR/installer.env"
   systemctl enable --now mysql
@@ -211,8 +221,10 @@ configure_mysql() {
     : # Fresh Ubuntu MySQL uses socket authentication for root.
   elif mysql --protocol=socket -uroot "-p${MYSQL_ROOT_PASSWORD}" -e 'SELECT 1' >/dev/null 2>&1; then
     mysql_root=(mysql --protocol=socket -uroot "-p${MYSQL_ROOT_PASSWORD}")
+  elif reset_mysql_for_fresh_install && mysql --protocol=socket -uroot -e 'SELECT 1' >/dev/null 2>&1; then
+    mysql_root=(mysql --protocol=socket -uroot)
   else
-    die "unable to authenticate to local MySQL root; remove the partial installation or provide the original installer configuration"
+    die "unable to authenticate to local MySQL root; for an approved clean reset, rerun with RADIUS_PRO_RESET_MYSQL=1"
   fi
   "${mysql_root[@]}" <<SQL
 ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${MYSQL_ROOT_PASSWORD}';
