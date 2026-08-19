@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.9}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.10}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -445,6 +445,9 @@ sql {
   acct_table1 = "radacct"
   acct_table2 = "radacct"
   postauth_table = "radpostauth"
+  read_groups = yes
+  group_attribute = "SQL-Group"
+  \$INCLUDE ${RADIUS_DIR}/mods-config/sql/main/mysql/queries.conf
   pool {
     start = 5
     min = 3
@@ -474,6 +477,7 @@ EOF
   chmod 0640 "$RADIUS_DIR/clients.conf"
   install -m 0750 "${INSTALLER_SOURCE_DIR}/services/radius-authorization-bridge.sh" /usr/local/bin/radius-authorization-bridge.sh
   install -m 0750 "${INSTALLER_SOURCE_DIR}/services/radius-accounting-bridge.sh" /usr/local/bin/radius-accounting-bridge.sh
+  chown root:freerad /usr/local/bin/radius-authorization-bridge.sh /usr/local/bin/radius-accounting-bridge.sh
   chown -R freerad:freerad "$RADIUS_DIR/dynamic-clients" "$RADIUS_DIR/mods-available/sql" "$RADIUS_DIR/mods-available/exec"
   freeradius -XC
   systemctl enable freeradius
