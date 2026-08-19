@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.5}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.6}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -122,11 +122,8 @@ install_packages() {
   fi
   apt-get update -qq
 
-  local pcre_package="libpcre3-dev"
-  if ! apt-cache show "$pcre_package" >/dev/null 2>&1; then
-    pcre_package="libpcre2-dev"
-  fi
-  apt-cache show "$pcre_package" >/dev/null 2>&1 || die "no supported PCRE development package is available"
+  local pcre_package="libpcre2-dev"
+  apt-cache show "$pcre_package" >/dev/null 2>&1 || die "libpcre2-dev is required to build accel-ppp"
 
   local mysql_dev_package="libmysqlclient-dev"
   if ! apt-cache show "$mysql_dev_package" >/dev/null 2>&1; then
