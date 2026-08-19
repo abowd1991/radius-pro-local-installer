@@ -23,6 +23,7 @@ import { plans, cardBatches, radiusCards, radcheck, radreply, radusergroup, nasD
 import { eq, inArray, and } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { sql } from 'drizzle-orm';
+import { randomUUID } from 'crypto';
 import { formatFreeRadiusExpiration } from '../core/FreeRadiusTime';
 import { buildPlanNetworkReplyAttributes } from '../../shared/planNetworkAttributes';
 
@@ -174,9 +175,12 @@ export async function importCardsFromCsv(data: ImportCardsInput): Promise<Import
   }
 
   // ── Calculate expiration ──
-  let expiresAt: Date | null = null;
+  // Keep imports consistent with generated cards: a card that counts usage from
+  // activation still receives a hard one-year expiry from creation.
+  const ONE_YEAR_MS = 365 * 86400000;
+  const now = new Date();
+  let expiresAt: Date;
   if (!timeFromActivation) {
-    const now = new Date();
     if (data.cardTimeValue && data.cardTimeValue > 0) {
       const ms = data.cardTimeUnit === 'days'
         ? data.cardTimeValue * 86400000
@@ -192,6 +196,8 @@ export async function importCardsFromCsv(data: ImportCardsInput): Promise<Import
     } else {
       expiresAt = new Date(now.getTime() + 30 * 86400000);
     }
+  } else {
+    expiresAt = new Date(now.getTime() + ONE_YEAR_MS);
   }
 
   const effectiveCreatedBy = data.assignedToUserId ?? data.createdBy;
@@ -297,6 +303,7 @@ export async function importCardsFromCsv(data: ImportCardsInput): Promise<Import
 
     allCardValues.push({
       username: card.username,
+      lifecycleId: randomUUID(),
       password: authType === 'username-only' ? null : card.password,
       authType,
       serialNumber,
@@ -347,7 +354,7 @@ export async function importCardsFromCsv(data: ImportCardsInput): Promise<Import
       username: card.username,
       attribute: 'Expiration',
       op: ':=',
-      value: expiresAt ? formatFreeRadiusExpiration(expiresAt) : 'Jan 01 2099 00:00:00',
+      value: formatFreeRadiusExpiration(expiresAt),
     });
 
     // radreply: Session-Timeout
