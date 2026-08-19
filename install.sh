@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.4}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.5}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -108,6 +108,13 @@ EOF
 
 install_packages() {
   export DEBIAN_FRONTEND=noninteractive
+  local source_file
+  while IFS= read -r -d '' source_file; do
+    if grep -Fq 'deb.nodesource.com' "$source_file"; then
+      rm -f "$source_file"
+    fi
+  done < <(find /etc/apt/sources.list.d -maxdepth 1 -type f -print0 2>/dev/null)
+  rm -f /etc/apt/keyrings/nodesource.gpg
   apt-get update -qq
   apt-get install -y -qq software-properties-common
   if command -v add-apt-repository >/dev/null 2>&1; then
