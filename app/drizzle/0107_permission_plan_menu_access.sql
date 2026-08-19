@@ -1,6 +1,8 @@
 ALTER TABLE permission_plans
   ADD COLUMN IF NOT EXISTS allowedMenuItems JSON NULL;
 
+--> statement-breakpoint
+
 CREATE TABLE IF NOT EXISTS user_menu_item_overrides (
   id INT AUTO_INCREMENT PRIMARY KEY,
   userId INT NOT NULL,

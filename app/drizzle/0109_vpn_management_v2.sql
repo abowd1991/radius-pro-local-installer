@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS `vpn_identities` (
   INDEX `vpn_identities_provision_idx` (`provisioningStatus`)
 );
 
+--> statement-breakpoint
+
 CREATE TABLE IF NOT EXISTS `vpn_live_sessions` (
   `id` int AUTO_INCREMENT NOT NULL,
   `vpnIdentityId` int NOT NULL,
@@ -39,6 +41,8 @@ CREATE TABLE IF NOT EXISTS `vpn_live_sessions` (
   INDEX `vpn_live_sessions_owner_idx` (`ownerId`),
   INDEX `vpn_live_sessions_last_seen_idx` (`lastSeenAt`)
 );
+
+--> statement-breakpoint
 
 CREATE TABLE IF NOT EXISTS `vpn_session_lifecycles` (
   `id` varchar(36) NOT NULL,
