@@ -64,5 +64,6 @@ grep -Fq 'JWT_SECRET=${JWT_SECRET}' "$ROOT_DIR/install.sh"
 grep -Fq 'if [[ -z "${JWT_SECRET:-}" ]]; then' "$ROOT_DIR/install.sh"
 grep -Fq 'source "$INSTALL_DIR/.env"' "$ROOT_DIR/install.sh"
 grep -Fq 'database migrations did not create radius_pro.users' "$ROOT_DIR/install.sh"
+test "$(grep -c '^--> statement-breakpoint$' "$ROOT_DIR/app/drizzle/0099_sync_plan_simultaneous_use.sql")" -eq 2
 
 printf 'INSTALLER_PREFLIGHT_TEST_OK\n'
