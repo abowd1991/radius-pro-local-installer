@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.0}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.1}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -696,6 +696,11 @@ EOF
   rm -f /etc/nginx/sites-enabled/default
   nginx -t
   systemctl enable nginx
+  if systemctl is-active --quiet nginx; then
+    systemctl reload nginx
+  else
+    systemctl start nginx
+  fi
   log "PM2 application and Nginx reverse proxy configured"
 }
 
