@@ -78,6 +78,8 @@ grep -Fq 'PIDFile=/run/accel-ppp.pid' "$ROOT_DIR/install.sh"
 grep -Fq 'Restart=on-failure' "$ROOT_DIR/install.sh"
 grep -Fq 'systemctl reload nginx' "$ROOT_DIR/install.sh"
 grep -Fq 'systemctl start nginx' "$ROOT_DIR/install.sh"
+grep -Fq 'redirectPath = "/login"' "$ROOT_DIR/app/client/src/_core/hooks/useAuth.ts"
+grep -Fq 'if (!oauthPortalUrl || !appId) return "/login";' "$ROOT_DIR/app/client/src/const.ts"
 while IFS= read -r -d '' migration; do
   statements=$(grep -cE ';[[:space:]]*$' "$migration" || true)
   breakpoints=$(grep -c '^--> statement-breakpoint$' "$migration" || true)
