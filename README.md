@@ -7,7 +7,7 @@
 استخدم خادم Ubuntu LTS جديداً بمعمارية `amd64` مع صلاحية `root` أو `sudo` واتصال إنترنت. يدعم المثبّت الرسمي Ubuntu **20.04** و**22.04** و**24.04** و**26.04 LTS**؛ ويمنع الإصدارات المرحلية والمنتهية الدعم كي لا يثبت نظاماً إنتاجياً على قاعدة غير مستقرة. يشغّل الأمر التالي المثبّت كاملاً دون إدخال تفاعلي؛ تُولّد الأسرار وكلمة مرور المدير تلقائياً وتحفظ محلياً بصلاحيات مقيدة.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.1.7/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.1.8/install.sh | sudo bash
 ```
 
 يمكن تمرير إعدادات اختيارية في نفس الأمر، مثل `RADIUS_PRO_PUBLIC_IP` و`RADIUS_PRO_ADMIN_USERNAME` و`RADIUS_PRO_ADMIN_PASSWORD` و`RADIUS_PRO_ADMIN_EMAIL`. لا تُضمّن أي أسرار في هذا المستودع. يثبت الرابط إصداراً موسوماً محدداً؛ وللاستخدام التجريبي لأحدث فرع رئيسي فقط، مرر `RADIUS_PRO_INSTALLER_REF=main` صراحةً.

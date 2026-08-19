@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.7}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.1.8}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 readonly INSTALLER_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
 readonly INSTALLER_SOURCE_DIR="$(cd "$(dirname "$INSTALLER_SCRIPT_PATH")" && pwd)"
@@ -243,9 +243,11 @@ EOF
 }
 
 stage_application() {
+  [[ -f "${INSTALLER_SOURCE_DIR}/scripts/bootstrap-owner.mjs" ]] || die "bootstrap-owner.mjs is missing from installer"
   rm -rf "$INSTALL_DIR"
   install -d -m 0750 "$INSTALL_DIR"
   cp -a "${INSTALLER_SOURCE_DIR}/app/." "$INSTALL_DIR/"
+  install -m 0600 "${INSTALLER_SOURCE_DIR}/scripts/bootstrap-owner.mjs" "$INSTALL_DIR/scripts/bootstrap-owner.mjs"
   cp "${INSTALLER_SOURCE_DIR}/services/coa-api.py" "$INSTALL_DIR/coa_api.py"
   mkdir -p "$INSTALL_DIR/uploads"
   chmod 0750 "$INSTALL_DIR/uploads"
