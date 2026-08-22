@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.14}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.15}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -408,14 +408,17 @@ EOF
   node scripts/bootstrap-owner.mjs
   local build_swap_file=""
   local memory_mb
+  local swap_mb
   memory_mb="$(free -m | awk '/^Mem:/ {print $2}')"
-  if (( memory_mb <= 1536 )) && ! swapon --show --noheadings | grep -q .; then
+  swap_mb="$(free -m | awk '/^Swap:/ {print $2}')"
+  if (( memory_mb <= 1536 && swap_mb < 2048 )); then
+    local build_swap_mb=$((2048 - swap_mb))
     build_swap_file="/var/lib/radius-pro-build.swap"
-    fallocate -l 1G "$build_swap_file"
+    fallocate -l "${build_swap_mb}M" "$build_swap_file"
     chmod 0600 "$build_swap_file"
     mkswap "$build_swap_file" >/dev/null
     swapon "$build_swap_file"
-    log "temporary build swap enabled for low-memory host"
+    log "temporary ${build_swap_mb} MiB build swap enabled for low-memory host"
   fi
   if ! NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=1024}" pnpm build; then
     [[ -z "$build_swap_file" ]] || { swapoff "$build_swap_file" || true; rm -f "$build_swap_file"; }
