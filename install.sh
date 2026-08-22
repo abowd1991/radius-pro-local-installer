@@ -406,7 +406,22 @@ EOF
     "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'radius_pro' AND table_name IN ('remote_management_accesses','remote_management_quotas','remote_management_access_events')" \
     | grep -qx '3' || die "database migrations did not create Winbox V2 remote-management tables"
   node scripts/bootstrap-owner.mjs
-  pnpm build
+  local build_swap_file=""
+  local memory_mb
+  memory_mb="$(free -m | awk '/^Mem:/ {print $2}')"
+  if (( memory_mb <= 1536 )) && ! swapon --show --noheadings | grep -q .; then
+    build_swap_file="/var/lib/radius-pro-build.swap"
+    fallocate -l 1G "$build_swap_file"
+    chmod 0600 "$build_swap_file"
+    mkswap "$build_swap_file" >/dev/null
+    swapon "$build_swap_file"
+    log "temporary build swap enabled for low-memory host"
+  fi
+  if ! NODE_OPTIONS="${NODE_OPTIONS:---max-old-space-size=1024}" pnpm build; then
+    [[ -z "$build_swap_file" ]] || { swapoff "$build_swap_file" || true; rm -f "$build_swap_file"; }
+    die "application build failed"
+  fi
+  [[ -z "$build_swap_file" ]] || { swapoff "$build_swap_file"; rm -f "$build_swap_file"; }
   cat > "$INSTALL_DIR/ecosystem.config.cjs" <<EOF
 module.exports = {
   apps: [{
