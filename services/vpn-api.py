@@ -2574,6 +2574,170 @@ def check_card_proxy():
         response.status_code = 200
         return response
 
+# === RADIUS PRO REMOTE MANAGEMENT V2 ===
+# === RADIUS PRO REMOTE MANAGEMENT V2 ===
+@app.route('/api/remote-management/v2/sync', methods=['POST'])
+def remote_management_v2_sync():
+    if not check_auth():
+        return jsonify({'error': 'Unauthorized'}), 401
+    import glob as _glob
+    import ipaddress as _ipaddress
+    import json as _json
+    import os as _os
+    import subprocess as _subprocess
+
+    data = request.get_json(force=True, silent=True) or {}
+    raw_accesses = data.get('accesses', [])
+    if not isinstance(raw_accesses, list) or len(raw_accesses) > 5000:
+        return jsonify({'success': False, 'error': 'Invalid remote-management access list'}), 400
+
+    def _private_vpn_ip(value):
+        try:
+            address = _ipaddress.ip_address(value)
+            return address.version == 4 and address.is_private and not address.is_loopback and not address.is_link_local
+        except ValueError:
+            return False
+
+    def _trusted_cidr(value):
+        try:
+            network = _ipaddress.ip_network(value, strict=False)
+            return network.version == 4 and str(network) != '0.0.0.0/0' and network.prefixlen >= 8
+        except ValueError:
+            return False
+
+    accesses = []
+    try:
+        for raw in raw_accesses:
+            if not isinstance(raw, dict):
+                raise ValueError('Access data must be an object')
+            access_id = int(raw.get('id'))
+            external_port = int(raw.get('external_port'))
+            target_port = int(raw.get('target_port'))
+            vpn_tunnel_ip = str(raw.get('vpn_tunnel_ip', '')).strip()
+            access_mode = str(raw.get('access_mode', '')).strip()
+            allowed_cidrs = raw.get('allowed_cidrs')
+            if access_id < 1 or not 40000 <= external_port <= 44999:
+                raise ValueError('External port is outside the Winbox V2 range')
+            if target_port != 8291 or not _private_vpn_ip(vpn_tunnel_ip):
+                raise ValueError('Winbox V2 target must be a private VPN endpoint on TCP 8291')
+            # Public ingress is deliberately disabled until a separately persisted
+            # acknowledgement policy is available at the VPS boundary.
+            if access_mode != 'restricted':
+                raise ValueError('Winbox V2 requires restricted access mode')
+            if not isinstance(allowed_cidrs, list) or not allowed_cidrs or len(allowed_cidrs) > 10:
+                raise ValueError('Winbox V2 requires a bounded source allowlist')
+            if not all(isinstance(cidr, str) and _trusted_cidr(cidr) for cidr in allowed_cidrs):
+                raise ValueError('Winbox V2 source allowlist is invalid')
+            accesses.append({
+                'id': access_id,
+                'external_port': external_port,
+                'target_port': target_port,
+                'vpn_tunnel_ip': vpn_tunnel_ip,
+                'allowed_cidrs': sorted(set(allowed_cidrs)),
+            })
+    except (TypeError, ValueError) as error:
+        return jsonify({'success': False, 'error': str(error)}), 400
+
+    if len({item['id'] for item in accesses}) != len(accesses) or len({item['external_port'] for item in accesses}) != len(accesses):
+        return jsonify({'success': False, 'error': 'Duplicate Winbox V2 access id or external port'}), 400
+
+    config_path = '/etc/nginx/stream.conf.d/radius-pro-remote-management-v2.conf'
+    staged_path = config_path + '.next'
+    rollback_path = config_path + '.rollback'
+    state_dir = '/var/lib/radius-pro'
+    state_path = state_dir + '/remote-management-v2.json'
+    nginx_conf = '/etc/nginx/nginx.conf'
+    module_path = '/etc/nginx/modules-enabled/50-radius-pro-stream.conf'
+
+    def _rule_tuples(items):
+        return {(item['external_port'], cidr) for item in items for cidr in item['allowed_cidrs']}
+
+    try:
+        old_accesses = []
+        if _os.path.exists(state_path):
+            with open(state_path) as handle:
+                loaded = _json.load(handle)
+                if isinstance(loaded, list):
+                    old_accesses = loaded
+        old_rules = _rule_tuples(old_accesses)
+        new_rules = _rule_tuples(accesses)
+
+        # Revoke obsolete ingress first; a failed later stage remains fail-closed.
+        for port, cidr in sorted(old_rules - new_rules):
+            result = _subprocess.run(['ufw', '--force', 'delete', 'allow', 'from', cidr, 'to', 'any', 'port', str(port), 'proto', 'tcp'], capture_output=True, text=True, timeout=15)
+            if result.returncode != 0 and 'Could not delete non-existent rule' not in (result.stdout + result.stderr):
+                raise RuntimeError('Unable to revoke obsolete UFW rule: ' + (result.stderr or result.stdout)[-300:])
+
+        _os.makedirs('/etc/nginx/stream.conf.d', exist_ok=True)
+        _os.makedirs('/etc/nginx/modules-enabled', exist_ok=True)
+        nginx_contents = open(nginx_conf).read()
+        if 'include /etc/nginx/modules-enabled/*.conf;' not in nginx_contents:
+            with open(nginx_conf, 'w') as handle:
+                handle.write('include /etc/nginx/modules-enabled/*.conf;\n' + nginx_contents)
+        system_stream_module = any(
+            path != module_path and 'ngx_stream_module.so' in open(path).read()
+            for path in _glob.glob('/etc/nginx/modules-enabled/*') if _os.path.isfile(path)
+        )
+        if system_stream_module:
+            if _os.path.exists(module_path):
+                _os.remove(module_path)
+        elif not _os.path.exists(module_path):
+            with open(module_path, 'w') as handle:
+                handle.write('load_module modules/ngx_stream_module.so;\n')
+        nginx_contents = open(nginx_conf).read()
+        if 'radius-pro-remote-management-v2-include' not in nginx_contents:
+            with open(nginx_conf, 'a') as handle:
+                handle.write('\n# radius-pro-remote-management-v2-include\ninclude /etc/nginx/stream.conf.d/*.conf;\n')
+
+        blocks = []
+        for item in accesses:
+            acl = '\n'.join('        allow {};'.format(cidr) for cidr in item['allowed_cidrs']) + '\n        deny all;'
+            blocks.append('    # radius-pro-rm-v2-{id}\n    server {{\n        listen {external_port};\n        proxy_connect_timeout 5s;\n        proxy_timeout 1h;\n{acl}\n        proxy_pass {vpn_tunnel_ip}:{target_port};\n    }}'.format(acl=acl, **item))
+        rendered = 'stream {\n' + '\n\n'.join(blocks) + '\n}\n'
+        with open(staged_path, 'w') as handle:
+            handle.write(rendered)
+        if _os.path.exists(config_path):
+            _os.replace(config_path, rollback_path)
+        _os.replace(staged_path, config_path)
+
+        check = _subprocess.run(['nginx', '-t'], capture_output=True, text=True, timeout=15)
+        if check.returncode != 0:
+            if _os.path.exists(rollback_path):
+                _os.replace(rollback_path, config_path)
+            else:
+                _os.remove(config_path)
+            raise RuntimeError('Nginx validation failed: ' + check.stderr[-500:])
+        reload_result = _subprocess.run(['nginx', '-s', 'reload'], capture_output=True, text=True, timeout=15)
+        if reload_result.returncode != 0:
+            if _os.path.exists(rollback_path):
+                _os.replace(rollback_path, config_path)
+                _subprocess.run(['nginx', '-s', 'reload'], capture_output=True, text=True, timeout=15)
+            raise RuntimeError('Nginx reload failed: ' + reload_result.stderr[-500:])
+
+        # Allow only the current restricted sources after Nginx has a valid mapping.
+        for port, cidr in sorted(new_rules - old_rules):
+            result = _subprocess.run(['ufw', 'allow', 'from', cidr, 'to', 'any', 'port', str(port), 'proto', 'tcp'], capture_output=True, text=True, timeout=15)
+            if result.returncode != 0:
+                raise RuntimeError('Unable to create UFW allowlist rule: ' + (result.stderr or result.stdout)[-300:])
+
+        _os.makedirs(state_dir, exist_ok=True)
+        state_next = state_path + '.next'
+        with open(state_next, 'w') as handle:
+            _json.dump(accesses, handle, sort_keys=True)
+        _os.replace(state_next, state_path)
+        if _os.path.exists(rollback_path):
+            _os.remove(rollback_path)
+        return jsonify({'success': True, 'count': len(accesses), 'ports': [item['external_port'] for item in accesses]})
+    except Exception as error:
+        try:
+            if _os.path.exists(staged_path):
+                _os.remove(staged_path)
+        except Exception:
+            pass
+        return jsonify({'success': False, 'error': str(error)}), 200
+
+
+
 if __name__ == "__main__":
     app.run(
         host=os.environ.get("RADIUS_PRO_VPN_API_HOST", "127.0.0.1"),

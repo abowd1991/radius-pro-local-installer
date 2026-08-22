@@ -1,412 +1,95 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import {
-  Monitor,
-  Wifi,
-  WifiOff,
-  Copy,
-  Check,
-  Power,
-  PowerOff,
-  RefreshCw,
-  Globe,
-  Network,
-  ExternalLink,
-  Shield,
-  Info,
-  Loader2,
-  Save,
-} from "lucide-react";
+import { Check, Copy, History, Info, Loader2, Monitor, Power, RefreshCw, ShieldCheck, Wifi, WifiOff } from "lucide-react";
+
+const statusLabel = (ar: boolean, status?: string) => {
+  const labels: Record<string, string> = ar
+    ? { pending: "بانتظار التفعيل", active: "نشط", disabled: "معطّل", error: "يتطلب مراجعة" }
+    : { pending: "Awaiting activation", active: "Active", disabled: "Disabled", error: "Needs review" };
+  return status ? labels[status] ?? status : ar ? "جاهز للطلب" : "Ready";
+};
 
 export default function WinboxAccess() {
   const { language, direction } = useLanguage();
-  const { user } = useAuth();
-  const [copiedId, setCopiedId] = useState<number | null>(null);
-  const [loadingId, setLoadingId] = useState<number | null>(null);
-  const [savingPortId, setSavingPortId] = useState<number | null>(null);
-  // Local port values per device: { [nasId]: portNumber }
-  const [localPorts, setLocalPorts] = useState<Record<number, number>>({});
-  const { data: publicAddress } = trpc.winbox.getPublicAddress.useQuery();
-  const domain = publicAddress?.address ?? "عنوان VPS غير مهيأ";
-
-  const { data: devices, isLoading, refetch } = trpc.winbox.getMyNasDevices.useQuery(undefined, {
-    onSuccess: (data: any[]) => {
-      // Initialize local ports from server data (only if not already set by user)
-      setLocalPorts(prev => {
-        const next = { ...prev };
-        for (const d of data) {
-          if (!(d.id in next)) {
-            next[d.id] = d.mikrotikWinboxPort ?? 8291;
-          }
-        }
-        return next;
-      });
-    }
-  } as any);
-
-  const updatePortMutation = trpc.winbox.updateMikrotikWinboxPort.useMutation({
-    onSuccess: (data) => {
-      toast.success(language === "ar" ? `✅ تم حفظ البورت ${data.mikrotikPort}` : `✅ Port ${data.mikrotikPort} saved`);
-      setSavingPortId(null);
-      refetch();
-    },
-    onError: (err) => {
-      toast.error(language === "ar" ? `❌ فشل حفظ البورت: ${err.message}` : `❌ Failed to save port: ${err.message}`);
-      setSavingPortId(null);
-    },
-  });
-
-  const enableMutation = trpc.winbox.enableForward.useMutation({
-    onSuccess: (data) => {
-      toast.success(language === "ar" ? `✅ تم تفعيل Winbox — اتصل عبر ${domain}:${data.port}` : `✅ Winbox Enabled — Connect via ${domain}:${data.port}`);
-      refetch();
-      setLoadingId(null);
-    },
-    onError: (err) => {
-      toast.error(language === "ar" ? `❌ فشل التفعيل: ${err.message}` : `❌ Enable Failed: ${err.message}`);
-      setLoadingId(null);
-    },
-  });
-
-  const disableMutation = trpc.winbox.disableForward.useMutation({
-    onSuccess: () => {
-      toast.success(language === "ar" ? "✅ تم إيقاف Winbox بنجاح" : "✅ Winbox Disabled");
-      refetch();
-      setLoadingId(null);
-    },
-    onError: (err) => {
-      toast.error(language === "ar" ? `❌ فشل الإيقاف: ${err.message}` : `❌ Disable Failed: ${err.message}`);
-      setLoadingId(null);
-    },
-  });
-
-  const handleCopy = (text: string, id: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
-    toast(language === "ar" ? `تم النسخ: ${text}` : `Copied: ${text}`);
-  };
-
-  const handleToggle = (device: any) => {
-    setLoadingId(device.id);
-    if (device.winboxEnabled) {
-      disableMutation.mutate({ nasId: device.id });
-    } else {
-      // Save port first if changed, then enable
-      const currentPort = localPorts[device.id] ?? 8291;
-      const serverPort = device.mikrotikWinboxPort ?? 8291;
-      if (currentPort !== serverPort) {
-        // Port changed - save it then enable
-        updatePortMutation.mutate(
-          { nasId: device.id, mikrotikPort: currentPort },
-          { onSuccess: () => enableMutation.mutate({ nasId: device.id }) }
-        );
-      } else {
-        enableMutation.mutate({ nasId: device.id });
-      }
-    }
-  };
-
-  const handleSavePort = (device: any) => {
-    const newPort = localPorts[device.id] ?? 8291;
-    setSavingPortId(device.id);
-    updatePortMutation.mutate({ nasId: device.id, mikrotikPort: newPort });
-  };
-
   const ar = language === "ar";
+  const utils = trpc.useUtils();
+  const [cidrs, setCidrs] = useState<Record<number, string>>({});
+  const [copied, setCopied] = useState<number | null>(null);
+  const [historyId, setHistoryId] = useState<number | null>(null);
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="flex items-center gap-3 mb-1">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-500">
-              <Monitor className="h-5 w-5" />
-            </div>
-            <h1 className="text-2xl font-bold tracking-tight">
-              {ar ? "Winbox عن بُعد" : "Winbox Remote Access"}
-            </h1>
-          </div>
-          <p className="text-muted-foreground text-sm">
-            {ar
-              ? "الوصول إلى أجهزة MikroTik الخاصة بك من أي مكان في العالم عبر Winbox"
-              : "Access your MikroTik devices from anywhere in the world via Winbox"}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""} ${direction === "rtl" ? "ml-2" : "mr-2"}`} />
-          {ar ? "تحديث" : "Refresh"}
-        </Button>
-      </div>
+  const devices = trpc.remoteManagement.devices.useQuery();
+  const accesses = trpc.remoteManagement.list.useQuery();
+  const quota = trpc.remoteManagement.quota.useQuery();
+  const address = trpc.remoteManagement.publicHost.useQuery();
+  const history = trpc.remoteManagement.history.useQuery({ id: historyId ?? 1 }, { enabled: historyId !== null });
+  const refresh = async () => Promise.all([
+    utils.remoteManagement.devices.invalidate(),
+    utils.remoteManagement.list.invalidate(),
+    utils.remoteManagement.quota.invalidate(),
+    historyId ? utils.remoteManagement.history.invalidate({ id: historyId }) : Promise.resolve(),
+  ]);
 
-      {/* Info Banner */}
-      <div className="rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30 p-4">
-        <div className="flex gap-3">
-          <Info className="h-5 w-5 text-blue-500 shrink-0 mt-0.5" />
-          <div className="text-sm text-blue-700 dark:text-blue-300">
-            <p className="font-semibold mb-1">
-              {ar ? "كيف يعمل؟" : "How does it work?"}
-            </p>
-            <p>
-              {ar
-                ? `عند تفعيل Winbox لجهاز ما، يقوم السيرفر بإنشاء توجيه TCP تلقائي من ${domain}:PORT إلى عنوان الجهاز داخل شبكة VPN. افتح Winbox وأدخل ${domain}:PORT للاتصال.`
-                : `When you enable Winbox for a device, the server creates an automatic TCP forward from ${domain}:PORT to the device's VPN address. Open Winbox and enter ${domain}:PORT to connect.`}
-            </p>
-          </div>
-        </div>
-      </div>
+  const request = trpc.remoteManagement.request.useMutation({
+    onSuccess: async () => { toast.success(ar ? "تم حجز الوصول. فعّله عند الجاهزية." : "Access reserved. Activate when ready."); await refresh(); },
+    onError: (error) => toast.error(error.message),
+  });
+  const activate = trpc.remoteManagement.activate.useMutation({
+    onSuccess: async () => { toast.success(ar ? "تم تفعيل Winbox V2 بقائمة السماح المحددة." : "Winbox V2 activated with the configured allowlist."); await refresh(); },
+    onError: (error) => toast.error(error.message),
+  });
+  const rollback = trpc.remoteManagement.rollback.useMutation({
+    onSuccess: async () => { toast.success(ar ? "تم إغلاق الوصول الخارجي وتعطيل الطلب." : "External access was closed and the request disabled."); await refresh(); },
+    onError: (error) => toast.error(error.message),
+  });
+  const reenable = trpc.remoteManagement.reenable.useMutation({
+    onSuccess: async () => { toast.success(ar ? "أعيد الطلب إلى انتظار التفعيل." : "Request moved back to pending activation."); await refresh(); },
+    onError: (error) => toast.error(error.message),
+  });
 
-      {/* Devices Grid */}
-      {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-        </div>
-      ) : !devices || devices.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
-            <Network className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-semibold mb-2">
-            {ar ? "لا توجد أجهزة NAS" : "No NAS Devices"}
-          </h3>
-          <p className="text-muted-foreground text-sm max-w-sm">
-            {ar
-              ? "أضف جهاز NAS أولاً من صفحة الأجهزة حتى تتمكن من تفعيل Winbox عن بُعد"
-              : "Add a NAS device first from the Devices page to enable remote Winbox access"}
-          </p>
-        </div>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {(devices as any[]).map((device) => {
-            const isEnabled = device.winboxEnabled;
-            const hasPort = !!device.winboxPort;
-            const hasVpnIp = !!device.vpnIp;
-            const isLoading2 = loadingId === device.id;
-            const isSavingPort = savingPortId === device.id;
-            const connectionString = hasPort ? `${domain}:${device.winboxPort}` : null;
-            const localPort = localPorts[device.id] ?? device.mikrotikWinboxPort ?? 8291;
-            const serverPort = device.mikrotikWinboxPort ?? 8291;
-            const portChanged = localPort !== serverPort;
+  const accessByNas = useMemo(() => new Map((accesses.data ?? []).map((item: any) => [item.nasId, item])), [accesses.data]);
+  const host = address.data?.host || (ar ? "عنوان VPS غير مهيأ" : "VPS host not configured");
+  const busy = request.isPending || activate.isPending || rollback.isPending || reenable.isPending;
+  const copy = async (value: string, id: number) => { await navigator.clipboard.writeText(value); setCopied(id); window.setTimeout(() => setCopied(null), 1500); };
 
-            return (
-              <Card
-                key={device.id}
-                className={`relative overflow-hidden transition-all duration-200 ${
-                  isEnabled
-                    ? "border-green-500/30 shadow-green-500/5 shadow-lg"
-                    : "border-border"
-                }`}
-              >
-                {/* Status indicator strip */}
-                <div
-                  className={`absolute top-0 left-0 right-0 h-1 ${
-                    isEnabled ? "bg-green-500" : "bg-muted"
-                  }`}
-                />
+  const reserve = (device: any) => {
+    const allowedCidrs = (cidrs[device.id] ?? "").split(/[\s,]+/).map((item) => item.trim()).filter(Boolean);
+    if (!allowedCidrs.length) {
+      toast.error(ar ? "أدخل عنوان IP أو CIDR موثوقاً." : "Enter at least one trusted IP or CIDR.");
+      return;
+    }
+    request.mutate({ nasId: device.id, targetPort: device.mikrotikWinboxPort ?? 8291, accessMode: "restricted", allowedCidrs, publicAcknowledged: false });
+  };
 
-                <CardHeader className="pb-3 pt-5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
-                          isEnabled
-                            ? "bg-green-500/10 text-green-500"
-                            : "bg-muted text-muted-foreground"
-                        }`}
-                      >
-                        <Monitor className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <CardTitle className="text-base truncate">{device.name}</CardTitle>
-                        <CardDescription className="text-xs truncate">{device.nasname}</CardDescription>
-                      </div>
-                    </div>
-                    <Badge
-                      variant={isEnabled ? "default" : "secondary"}
-                      className={`shrink-0 text-xs ${
-                        isEnabled
-                          ? "bg-green-500/10 text-green-600 border-green-500/20 hover:bg-green-500/20"
-                          : ""
-                      }`}
-                    >
-                      {isEnabled ? (
-                        <><Wifi className="h-3 w-3 mr-1" />{ar ? "نشط" : "Active"}</>
-                      ) : (
-                        <><WifiOff className="h-3 w-3 mr-1" />{ar ? "معطّل" : "Inactive"}</>
-                      )}
-                    </Badge>
-                  </div>
-                </CardHeader>
+  return <div className="space-y-6" dir={direction}>
+    <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div><div className="mb-1 flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500"><Monitor className="h-5 w-5" /></div><h1 className="text-2xl font-bold">{ar ? "إدارة Winbox V2" : "Winbox Management V2"}</h1></div><p className="text-sm text-muted-foreground">{ar ? "وصول معزول عبر VPN، نطاق V2 مستقل، وقائمة سماح إلزامية." : "Isolated VPN access, a dedicated V2 range, and a mandatory source allowlist."}</p></div>
+      <Button variant="outline" onClick={refresh} disabled={devices.isLoading || busy}><RefreshCw className={`h-4 w-4 ${devices.isLoading ? "animate-spin" : ""} ${direction === "rtl" ? "ml-2" : "mr-2"}`} />{ar ? "تحديث" : "Refresh"}</Button>
+    </header>
 
-                <CardContent className="space-y-4">
-                  {/* VPN IP */}
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground flex items-center gap-1.5">
-                      <Shield className="h-3.5 w-3.5" />
-                      {ar ? "IP الـ VPN" : "VPN IP"}
-                    </span>
-                    <span className={`font-mono text-xs px-2 py-0.5 rounded ${hasVpnIp ? "bg-muted" : "text-muted-foreground"}`}>
-                      {device.vpnIp || (ar ? "غير متصل" : "Not connected")}
-                    </span>
-                  </div>
+    <Card className="border-sky-500/20 bg-sky-500/[0.03]"><CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between"><div className="flex gap-3"><ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-sky-500" /><div><p className="font-semibold">{ar ? "وصول Winbox V2 مقيّد" : "Restricted Winbox V2 access"}</p><p className="mt-1 text-sm text-muted-foreground">{ar ? "لا يُفتح أي منفذ إلا بعد التفعيل، ولا يُسمح بالوصول العام." : "No port opens until activation, and public ingress is not permitted."}</p></div></div><Badge variant="outline" className="w-fit border-sky-500/25 text-sky-600">{ar ? `الحصة: ${quota.data?.usedAccesses ?? 0}/${quota.data?.maxAccesses ?? 0}` : `Quota: ${quota.data?.usedAccesses ?? 0}/${quota.data?.maxAccesses ?? 0}`}</Badge></CardContent></Card>
 
-                  {/* MikroTik Winbox Port Field */}
-                  <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
-                    <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <Globe className="h-3 w-3" />
-                      {ar ? "بورت Winbox على الجهاز" : "Winbox Port on Device"}
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Input
-                        type="number"
-                        min={1}
-                        max={65535}
-                        value={localPort}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value);
-                          if (!isNaN(val) && val >= 1 && val <= 65535) {
-                            setLocalPorts(prev => ({ ...prev, [device.id]: val }));
-                          }
-                        }}
-                        className="h-8 text-sm font-mono"
-                        placeholder="8291"
-                      />
-                      {/* Show save button only if port changed and Winbox is already enabled */}
-                      {isEnabled && portChanged && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8 px-2 shrink-0 text-xs"
-                          disabled={isSavingPort}
-                          onClick={() => handleSavePort(device)}
-                        >
-                          {isSavingPort ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <><Save className="h-3.5 w-3.5 mr-1" />{ar ? "تحديث" : "Update"}</>
-                          )}
-                        </Button>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      {ar
-                        ? "الافتراضي 8291 — غيّره إذا عدّلت بورت Winbox في MikroTik"
-                        : "Default 8291 — change if you modified Winbox port in MikroTik"}
-                    </p>
-                  </div>
-
-                  {/* Winbox Connection String */}
-                  {connectionString && (
-                    <div className="rounded-lg border bg-muted/50 p-3">
-                      <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1">
-                        <Globe className="h-3 w-3" />
-                        {ar ? "عنوان الاتصال (Winbox)" : "Connection Address (Winbox)"}
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <code className="flex-1 text-sm font-mono font-bold text-foreground truncate">
-                          {connectionString}
-                        </code>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 shrink-0"
-                          onClick={() => handleCopy(connectionString, device.id)}
-                        >
-                          {copiedId === device.id ? (
-                            <Check className="h-3.5 w-3.5 text-green-500" />
-                          ) : (
-                            <Copy className="h-3.5 w-3.5" />
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Port info when not enabled */}
-                  {!connectionString && isEnabled && (
-                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 dark:border-yellow-800 dark:bg-yellow-950/30 p-3 text-xs text-yellow-700 dark:text-yellow-300">
-                      {ar ? "جاري تخصيص المنفذ..." : "Allocating port..."}
-                    </div>
-                  )}
-
-                  {/* No VPN warning */}
-                  {!hasVpnIp && !isEnabled && (
-                    <div className="rounded-lg border border-orange-200 bg-orange-50 dark:border-orange-800 dark:bg-orange-950/30 p-3 text-xs text-orange-700 dark:text-orange-300">
-                      {ar
-                        ? "⚠️ الجهاز غير متصل بـ VPN. يجب الاتصال أولاً لتفعيل Winbox."
-                        : "⚠️ Device not connected to VPN. Connect first to enable Winbox."}
-                    </div>
-                  )}
-
-                  {/* Toggle Button */}
-                  <Button
-                    className={`w-full ${
-                      isEnabled
-                        ? "bg-red-500/10 text-red-600 hover:bg-red-500/20 border border-red-500/20"
-                        : "bg-green-500/10 text-green-600 hover:bg-green-500/20 border border-green-500/20"
-                    }`}
-                    variant="ghost"
-                    disabled={isLoading2 || (!hasVpnIp && !isEnabled)}
-                    onClick={() => handleToggle(device)}
-                  >
-                    {isLoading2 ? (
-                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                    ) : isEnabled ? (
-                      <PowerOff className="h-4 w-4 mr-2" />
-                    ) : (
-                      <Power className="h-4 w-4 mr-2" />
-                    )}
-                    {isLoading2
-                      ? (ar ? "جاري المعالجة..." : "Processing...")
-                      : isEnabled
-                      ? (ar ? "إيقاف Winbox" : "Disable Winbox")
-                      : (ar ? "تفعيل Winbox" : "Enable Winbox")}
-                  </Button>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Download Winbox */}
-      <Card className="border-dashed">
-        <CardContent className="flex flex-col sm:flex-row items-center justify-between gap-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10 text-sky-500">
-              <ExternalLink className="h-5 w-5" />
-            </div>
-            <div>
-              <p className="font-semibold text-sm">
-                {ar ? "تحميل Winbox" : "Download Winbox"}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                {ar ? "برنامج إدارة MikroTik الرسمي" : "Official MikroTik management tool"}
-              </p>
-            </div>
-          </div>
-          <a
-            href="https://mt.lv/winbox64"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0"
-          >
-            <Button variant="outline" size="sm">
-              <ExternalLink className="h-4 w-4 mr-2" />
-              {ar ? "تحميل Winbox 64-bit" : "Download Winbox 64-bit"}
-            </Button>
-          </a>
-        </CardContent>
-      </Card>
-    </div>
-  );
+    {devices.isLoading ? <div className="flex justify-center py-20"><Loader2 className="h-8 w-8 animate-spin" /></div> : (devices.data ?? []).length === 0 ? <Card><CardContent className="py-16 text-center text-muted-foreground">{ar ? "لا توجد أجهزة NAS مملوكة للحساب." : "No NAS devices belong to this account."}</CardContent></Card> : <div className="grid gap-4 lg:grid-cols-2">{(devices.data ?? []).map((device: any) => {
+      const access: any = accessByNas.get(device.id);
+      const connected = Boolean(device.allocatedIp || device.vpnTunnelIp);
+      const endpoint = access?.status === "active" && access?.externalPort ? `${host}:${access.externalPort}` : null;
+      const showingHistory = historyId === access?.id;
+      return <Card key={device.id} className="overflow-hidden"><div className={`h-1 ${access?.status === "active" ? "bg-emerald-500" : access?.status === "pending" ? "bg-amber-500" : access?.status === "error" ? "bg-destructive" : "bg-muted"}`} /><CardHeader className="pb-3"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-muted"><Monitor className="h-5 w-5" /></div><div className="min-w-0"><CardTitle className="truncate text-base">{device.name || device.nasname || `NAS #${device.id}`}</CardTitle><CardDescription className="truncate">{device.nasname || (ar ? "بانتظار NAS" : "Awaiting NAS")}</CardDescription></div></div><Badge variant="outline">{access ? statusLabel(ar, access.status) : connected ? statusLabel(ar) : ar ? "VPN غير متصل" : "VPN offline"}</Badge></div></CardHeader><CardContent className="space-y-4">
+        {endpoint && <div className="rounded-lg border border-emerald-500/25 bg-emerald-500/[0.04] p-3"><p className="mb-1 text-xs text-muted-foreground">{ar ? "نقطة اتصال Winbox النشطة" : "Active Winbox endpoint"}</p><div className="flex items-center justify-between gap-2"><code className="truncate text-sm font-semibold">{endpoint}</code><Button variant="ghost" size="icon" onClick={() => copy(endpoint, device.id)}>{copied === device.id ? <Check className="h-4 w-4 text-emerald-500" /> : <Copy className="h-4 w-4" />}</Button></div></div>}
+        {!access && <><div><Label className="text-xs">{ar ? "عناوين IP/CIDR المسموح بها" : "Allowed IPs/CIDRs"}</Label><Input className="mt-1" placeholder="203.0.113.9/32" value={cidrs[device.id] ?? ""} onChange={(event) => setCidrs((old) => ({ ...old, [device.id]: event.target.value }))} /></div><Button className="w-full" disabled={!connected || busy} onClick={() => reserve(device)}><Wifi className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />{ar ? "حجز وصول V2" : "Reserve V2 access"}</Button></>}
+        {access?.status === "disabled" && <Button className="w-full" disabled={busy} onClick={() => reenable.mutate({ id: access.id })}><Power className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />{ar ? "إعادة طلب التفعيل" : "Request reactivation"}</Button>}
+        {access && access.status !== "disabled" && <div className="grid gap-2 sm:grid-cols-2"><Button disabled={busy || access.status === "active"} onClick={() => activate.mutate({ id: access.id })}><Wifi className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />{ar ? "تفعيل على VPS" : "Activate on VPS"}</Button><Button variant="outline" disabled={busy} onClick={() => rollback.mutate({ id: access.id })}><WifiOff className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />{ar ? "تراجع وإغلاق" : "Rollback & close"}</Button></div>}
+        {access && <Button variant="ghost" size="sm" className="w-full" disabled={busy} onClick={() => setHistoryId(showingHistory ? null : access.id)}><History className={`h-4 w-4 ${direction === "rtl" ? "ml-2" : "mr-2"}`} />{ar ? "سجل الأحداث" : "Event history"}</Button>}
+        {showingHistory && <div className="rounded-lg border bg-muted/20 p-3 text-xs">{history.isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : (history.data ?? []).length === 0 ? <span className="text-muted-foreground">{ar ? "لا توجد أحداث مسجلة." : "No events recorded."}</span> : <div className="space-y-2">{(history.data ?? []).slice(0, 5).map((event: any) => <div key={event.id} className="flex justify-between gap-3"><span className="font-medium">{event.action}</span><span className="text-muted-foreground">{event.createdAt ? new Date(event.createdAt).toLocaleString() : ""}</span></div>)}</div>}</div>}
+        {access?.lastError && <p className="text-xs text-destructive">{access.lastError}</p>}
+      </CardContent></Card>;
+    })}</div>}
+    <p className="flex gap-2 text-xs text-muted-foreground"><Info className="h-4 w-4 shrink-0" />{ar ? "النطاق 40000–44999 مخصص للإدارة البعيدة ولا يتداخل مع Legacy أو توجيه LAN." : "The 40000–44999 range is dedicated to remote management and does not overlap legacy or LAN forwarding."}</p>
+  </div>;
 }

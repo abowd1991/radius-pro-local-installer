@@ -5,7 +5,7 @@ set -Eeuo pipefail
 umask 077
 
 readonly INSTALLER_REPOSITORY="https://github.com/abowd1991/radius-pro-local-installer.git"
-readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.11}"
+readonly INSTALLER_REF="${RADIUS_PRO_INSTALLER_REF:-v3.3.12}"
 readonly INSTALLER_WORKDIR="/root/radius-pro-installer"
 INSTALLER_SCRIPT_PATH="${BASH_SOURCE[0]:-}"
 if [[ -n "$INSTALLER_SCRIPT_PATH" && -f "$INSTALLER_SCRIPT_PATH" ]]; then
@@ -169,12 +169,18 @@ install_packages() {
   done
   [[ -n "$snmp_dev_package" ]] || die "no supported Net-SNMP development package is available"
 
+  local nginx_stream_package="libnginx-mod-stream"
+  if ! apt-cache show "$nginx_stream_package" >/dev/null 2>&1; then
+    nginx_stream_package="nginx-full"
+  fi
+  apt-cache show "$nginx_stream_package" >/dev/null 2>&1 || die "no supported Nginx Stream package is available"
+
   apt-get install -y -qq \
     ca-certificates curl git gnupg lsb-release unzip zip jq \
     build-essential cmake pkg-config \
     "$pcre_package" libssl-dev liblua5.3-dev libpq-dev "$mysql_dev_package" \
     libgnutls28-dev libreadline-dev libcap-dev libmnl-dev "$snmp_dev_package" \
-    mysql-server redis-server nginx ufw fail2ban cron logrotate \
+    mysql-server redis-server nginx "$nginx_stream_package" ufw fail2ban cron logrotate \
     freeradius freeradius-mysql freeradius-utils \
     strongswan strongswan-starter strongswan-pki libcharon-extra-plugins xl2tpd ppp \
     python3 python3-pip python3-venv python3-pymysql python3-mysql.connector python3-flask \
@@ -396,6 +402,9 @@ EOF
   MYSQL_PWD="$RADIUS_PRO_APP_DB_PASSWORD" mysql --protocol=socket -uradiuspro -Nse \
     "SELECT 1 FROM information_schema.columns WHERE table_schema = 'radius_pro' AND table_name = 'users' AND column_name = 'preferredCurrency'" \
     | grep -qx '1' || die "database migrations did not create radius_pro.users.preferredCurrency"
+  MYSQL_PWD="$RADIUS_PRO_APP_DB_PASSWORD" mysql --protocol=socket -uradiuspro -Nse \
+    "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'radius_pro' AND table_name IN ('remote_management_accesses','remote_management_quotas','remote_management_access_events')" \
+    | grep -qx '3' || die "database migrations did not create Winbox V2 remote-management tables"
   node scripts/bootstrap-owner.mjs
   pnpm build
   cat > "$INSTALL_DIR/ecosystem.config.cjs" <<EOF
@@ -807,7 +816,7 @@ stamp=$(date -u +%Y%m%d-%H%M%S)
 target=/var/backups/radius-pro
 mkdir -p "$target"
 mysqldump -uroot -p"$MYSQL_ROOT_PASS" --single-transaction --routines --triggers radius_pro | gzip > "$target/radius_pro_${stamp}.sql.gz"
-items=(/etc/radius-pro /etc/freeradius /etc/ipsec.conf /etc/ipsec.secrets /etc/xl2tpd /etc/ppp /etc/accel-ppp.conf /etc/nginx/sites-enabled/radius-pro /opt/radius-pro/.env /opt/radius-pro/.release-manifest /opt/radius-pro/uploads /opt/vpn-api.py)
+items=(/etc/radius-pro /etc/freeradius /etc/ipsec.conf /etc/ipsec.secrets /etc/xl2tpd /etc/ppp /etc/accel-ppp.conf /etc/nginx/sites-enabled/radius-pro /etc/nginx/stream.conf.d/radius-pro-remote-management-v2.conf /opt/radius-pro/.env /opt/radius-pro/.release-manifest /opt/radius-pro/uploads /opt/vpn-api.py /var/lib/radius-pro/remote-management-v2.json)
 [[ -f /var/lib/redis/dump.rdb ]] && items+=(/var/lib/redis/dump.rdb)
 tar -czf "$target/radius_pro_config_${stamp}.tar.gz" "${items[@]}"
 find "$target" -type f -mtime +30 -delete
@@ -852,6 +861,7 @@ start_and_verify() {
 - Backups: ${BACKUP_DIR}
 - Verification: /root/radius-pro-installer/scripts/verify-install.sh
 - Health: curl http://127.0.0.1:3000/health
+- Winbox V2: /api/remote-management/v2/sync manages /etc/nginx/stream.conf.d/radius-pro-remote-management-v2.conf. It accepts restricted CIDR allowlists only, TCP 8291 over private VPN targets, and external TCP 40000-44999.
 
 The installed system uses local MySQL, Redis, local file storage, FreeRADIUS 3, L2TP/IPsec, PPTP and SSTP on 8443. NAS isolation is fail-closed in FreeRADIUS. Do not modify FreeRADIUS, VPN or firewall settings without a full backup and explicit approval.
 EOF

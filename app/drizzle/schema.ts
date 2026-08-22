@@ -2613,3 +2613,54 @@ export const feedbackAnalytics = mysqlTable("feedback_analytics", {
 }));
 export type FeedbackAnalytic = typeof feedbackAnalytics.$inferSelect;
 export type InsertFeedbackAnalytic = typeof feedbackAnalytics.$inferInsert;
+
+// Remote Management Access V2 — isolated Winbox access through the NAS VPN IP.
+export const remoteManagementAccesses = mysqlTable("remote_management_accesses", {
+  id: int("id").primaryKey().autoincrement(),
+  ownerId: int("ownerId").notNull(),
+  nasId: int("nasId").notNull(),
+  createdBy: int("createdBy").notNull(),
+  service: mysqlEnum("service", ["winbox"]).default("winbox").notNull(),
+  targetPort: int("targetPort").notNull().default(8291),
+  vpnTunnelIp: varchar("vpnTunnelIp", { length: 45 }).notNull(),
+  externalPort: int("externalPort").notNull(),
+  accessMode: mysqlEnum("accessMode", ["restricted", "public"]).default("restricted").notNull(),
+  allowedCidrs: json("allowedCidrs").$type<string[]>().notNull(),
+  status: mysqlEnum("status", ["pending", "active", "disabled", "error"]).default("pending").notNull(),
+  lastError: text("lastError"),
+  activatedAt: timestamp("activatedAt"),
+  disabledAt: timestamp("disabledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  ownerIdx: index("remote_management_owner_idx").on(table.ownerId),
+  ownerNasIdx: uniqueIndex("remote_management_owner_nas_service_uniq").on(table.ownerId, table.nasId, table.service),
+  externalPortUniq: uniqueIndex("remote_management_external_port_uniq").on(table.externalPort),
+  statusIdx: index("remote_management_status_idx").on(table.status),
+}));
+export type RemoteManagementAccess = typeof remoteManagementAccesses.$inferSelect;
+export type InsertRemoteManagementAccess = typeof remoteManagementAccesses.$inferInsert;
+
+export const remoteManagementAccessEvents = mysqlTable("remote_management_access_events", {
+  id: int("id").primaryKey().autoincrement(),
+  accessId: int("accessId").notNull(),
+  ownerId: int("ownerId").notNull(),
+  actorId: int("actorId").notNull(),
+  action: mysqlEnum("action", ["requested", "activation_requested", "activated", "activation_failed", "disable_requested", "disabled", "reenable_requested", "rollback_requested", "rollback_completed", "rollback_failed"]).notNull(),
+  details: json("details").$type<Record<string, unknown>>(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => ({
+  accessIdx: index("remote_management_events_access_idx").on(table.accessId, table.createdAt),
+  ownerIdx: index("remote_management_events_owner_idx").on(table.ownerId, table.createdAt),
+}));
+export type RemoteManagementAccessEvent = typeof remoteManagementAccessEvents.$inferSelect;
+
+export const remoteManagementQuotas = mysqlTable("remote_management_quotas", {
+  id: int("id").primaryKey().autoincrement(),
+  ownerId: int("ownerId").notNull().unique(),
+  maxAccesses: int("maxAccesses").notNull().default(3),
+  usedAccesses: int("usedAccesses").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+export type RemoteManagementQuota = typeof remoteManagementQuotas.$inferSelect;

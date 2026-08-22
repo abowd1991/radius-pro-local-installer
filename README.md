@@ -7,7 +7,7 @@
 استخدم خادم Ubuntu LTS جديداً بمعمارية `amd64` مع صلاحية `root` أو `sudo` واتصال إنترنت. يدعم المثبّت الرسمي Ubuntu **20.04** و**22.04** و**24.04** و**26.04 LTS**؛ ويمنع الإصدارات المرحلية والمنتهية الدعم كي لا يثبت نظاماً إنتاجياً على قاعدة غير مستقرة. يشغّل الأمر التالي المثبّت كاملاً دون إدخال تفاعلي؛ تُولّد الأسرار وتحفظ محلياً بصلاحيات مقيدة، وبيانات دخول المدير الافتراضية هي `admin` / `admin` ما لم تمرر قيمة بديلة صراحةً.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.11/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.12/install.sh | sudo bash
 ```
 
 يمكن تمرير إعدادات اختيارية في نفس الأمر، مثل `RADIUS_PRO_PUBLIC_IP` و`RADIUS_PRO_ADMIN_USERNAME` و`RADIUS_PRO_ADMIN_PASSWORD` و`RADIUS_PRO_ADMIN_EMAIL`. لا تُضمّن أي أسرار في هذا المستودع. يثبت الرابط إصداراً موسوماً محدداً؛ وللاستخدام التجريبي لأحدث فرع رئيسي فقط، مرر `RADIUS_PRO_INSTALLER_REF=main` صراحةً.
@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installe
 يحفظ المثبّت الأسرار التي ولّدها في `/etc/radius-pro/installer.env` ويستخدمها عند إعادة التشغيل. على خادم تجريبي قابل للحذف فقط، إذا وُجدت قاعدة MySQL سابقة بكلمة مرور جذر مجهولة، يمكن إعادة ضبط بيانات MySQL قبل استكمال التثبيت:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.11/install.sh | sudo RADIUS_PRO_RESET_MYSQL=1 bash
+curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installer/v3.3.12/install.sh | sudo RADIUS_PRO_RESET_MYSQL=1 bash
 ```
 
 > هذا الخيار يحذف نهائياً `/var/lib/mysql`، ولا يجوز استخدامه على خادم يحتوي أي بيانات MySQL مطلوبة.
@@ -33,6 +33,7 @@ curl -fsSL https://raw.githubusercontent.com/abowd1991/radius-pro-local-installe
 | FreeRADIUS | SQL وAccounting وV2 Authorization Bridge وعزل NAS fail-closed على 1812/1813 |
 | VPN | L2TP/IPsec وPPTP وSSTP عبر accel-ppp على 8443؛ يبني المثبّت PPTP من مصدر موثّق ومثبّت البصمة عند غياب حزمة `pptpd` في Ubuntu الحديثة |
 | APIs | VPN API وCoA API محليتان فقط على 8080 و8082 |
+| Winbox V2 | وصول بعيد معزول عبر عنوان NAS داخل VPN فقط، TCP 8291، ومنافذ خارجية 40000–44999 بقائمة سماح CIDR إلزامية؛ لا يدعم الوصول العام |
 | الحماية | UFW، Fail2ban، نسخ احتياطي يومي، Logrotate، والتحقق النهائي للخدمات |
 
 بعد التثبيت توجد بيانات الإدارة والأسرار في `/etc/radius-pro/installer.env`، وبيانات MySQL في `/root/.mysql_credentials`، والنسخ الاحتياطية في `/var/backups/radius-pro`.

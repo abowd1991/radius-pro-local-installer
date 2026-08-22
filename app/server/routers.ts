@@ -71,6 +71,7 @@ import { analyticsRouter } from "./routers/analytics";
 import { salesDashboardRouter } from "./routers/salesDashboard";
 import { networkMonitorRouter } from "./routers/networkMonitor";
 import { portForwardingRouter } from "./routers/portForwarding";
+import { remoteManagementAccessRouter } from "./routers/remoteManagementAccess";
 import { notificationsRouter as channelNotificationsRouter } from "./routers/notifications";
 import { backupRouter } from "./routers/backup";
 import { siteRouter } from "./routers/settings";
@@ -3419,6 +3420,7 @@ export const appRouter = router({
   broadcasts: broadcastsRouter,
   networkMonitor: networkMonitorRouter,
   portForwarding: portForwardingRouter,
+  remoteManagement: remoteManagementAccessRouter,
   notificationChannels: channelNotificationsRouter,
   smsCards: smsCardsRouter,
   security: securityRouter,
